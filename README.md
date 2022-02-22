@@ -19,6 +19,8 @@ meson ..
 ninja
 pip3 install pytest
 sudo python3 -m pytest test/
+sudo ninja install
+sudo ln -s /usr/local/lib/x86_64-linux-gnu/libfuse3.so.3.10.5 /lib/x86_64-linux-gnu/libfuse3.so.3
 ```
 
 gRPC Setup steps :
