@@ -12,15 +12,18 @@ meson ..
 ninja
 pip3 install pytest
 sudo python3 -m pytest test/
+sudo ninja install
+sudo ln -s /usr/local/lib/x86_64-linux-gnu/libfuse3.so.3.10.5 /lib/x86_64-linux-gnu/libfuse3.so.3
+echo '*********************FUSE installed*********************'
 
-cd
-
+cd 
 export MY_INSTALL_DIR=$HOME/.local
 mkdir -p $MY_INSTALL_DIR
 export PATH="$MY_INSTALL_DIR/bin:$PATH"
 wget -q -O cmake-linux.sh https://github.com/Kitware/CMake/releases/download/v3.19.6/cmake-3.19.6-Linux-x86_64.sh
 sh cmake-linux.sh -- --skip-license --prefix=$MY_INSTALL_DIR
 rm cmake-linux.sh
+cmake --version
 sudo apt install -y build-essential autoconf libtool pkg-config
 git clone --recurse-submodules -b v1.43.0 https://github.com/grpc/grpc
 
