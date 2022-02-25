@@ -1,0 +1,148 @@
+syntax = "proto3";
+
+package afsfuse;
+
+message SerializeByte {
+	bytes buffer = 1;
+}
+
+message String {
+	string str = 1;
+}
+
+message Dirent {
+	uint32 dino  =1; 
+	string dname = 2;
+	uint32 dtype = 3;
+	int32 err = 4;
+}
+
+
+message Stat {
+    uint32   dev = 1;    // ID of device containing file 
+    uint32   ino = 2;     // inode number 
+    int32   mode = 3;   // protection 
+    uint32   nlink = 4;    // number of hard links 
+    uint32     uid = 5;     // user ID of owner 
+    uint32     gid = 6;     // group ID of owner 
+    sint64     size = 7;    // total size, in bytes 
+    sint64 blksize = 8; // blocksize for file system I/O 
+    sint64  blocks = 9;  // number of 512B blocks allocated 
+    int32    atime = 10;   // time of last access 
+    int32    mtime = 11;   // time of last modification
+    int32    ctime = 12;   // time of last status change
+    
+    int32    err = 13; 
+}
+
+message FuseFileInfo{
+    int32 flags = 1;
+    int32 fh = 2;
+    uint32 oldfh = 3;
+    uint64 lockowner = 5;
+    uint32 pollevent = 6;
+
+    int32 err = 4;
+    string path = 7;
+}
+
+message ReadResult{
+    int32 bytesread = 1;
+    bytes buffer = 2;
+    
+    int32 err = 3;
+}
+
+message ReadRequest{
+    string path =1;
+    uint32 size =2;
+    int64 offset =3;
+}
+
+message WriteRequest{
+    string path = 1;
+    uint32 size = 2;
+    int32 offset = 3; 
+    bytes buffer = 4;
+}
+
+message WriteResult{
+    int32 nbytes = 1;
+
+    int32 err =2;
+}
+
+message CreateRequest{
+    string path =1;
+    int32 mode  =2;
+    int32 flags =3;
+    
+}
+
+message CreateResult{
+    int32 flags = 1;
+    int32 fh = 2;
+    uint32 oldfh = 3;
+    uint64 lockowner = 5;
+    uint32 pollevent = 6;
+
+    int32 err = 7;
+}
+
+message MkdirRequest {
+    string s = 1;
+    int32 mode = 2;
+}
+
+message OutputInfo {
+    string str = 1;
+    int32 err = 2;
+}
+
+message RenameRequest {
+    string fp = 1;
+    string tp = 2;
+    uint32 flag = 3;
+}
+
+message UtimensRequest {
+    string path = 1;
+    int32 sec = 2;
+    int64 nsec = 3;
+    int32 sec2 = 4;
+    int64 nsec2 = 5;
+}
+
+message MknodRequest {
+    string path = 1;
+    int32 mode = 2;
+    uint32 rdev = 3;
+}
+
+message FileContent {
+  int32  id = 1;
+  string name = 2;
+  bytes  content = 3;
+}
+
+message File {
+  string path = 1;
+}
+
+service AFS {
+    rpc afsfuse_getattr(String) returns (Stat) {}
+    rpc afsfuse_readdir(String) returns (stream Dirent){}
+    rpc afsfuse_open(FuseFileInfo) returns (FuseFileInfo) {}
+    rpc afsfuse_read(ReadRequest) returns (ReadResult) {}
+    rpc afsfuse_write(WriteRequest) returns (WriteResult){}
+    rpc afsfuse_create(CreateRequest) returns (CreateResult) {}
+    rpc afsfuse_mkdir(MkdirRequest) returns (OutputInfo){}
+    rpc afsfuse_rmdir(String) returns (OutputInfo){}
+    rpc afsfuse_unlink(String) returns (OutputInfo){}
+    rpc afsfuse_rename(RenameRequest) returns (OutputInfo){}
+    rpc afsfuse_utimens(UtimensRequest) returns (OutputInfo){}
+    rpc afsfuse_mknod(MknodRequest) returns (OutputInfo){}
+    rpc afsfuse_putFile(stream FileContent) returns (OutputInfo) {}
+    rpc afsfuse_getFile(File) returns (stream FileContent) {}
+}
+
