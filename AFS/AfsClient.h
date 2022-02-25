@@ -93,7 +93,7 @@ class AfsClient {
 
         fi_req.set_path(path);
         fi_req.set_flags(fi -> flags);
-
+	cout << __func__ << " : " << string(path) << endl;
         status = stub_ -> afsfuse_open( & ctx, fi_req, & fi_res);
         if (fi_res.err() == 0)
             fi -> fh = fi_res.fh();
@@ -278,20 +278,20 @@ class AfsClient {
         return true;
     }
 
-    int rpc_getFile(string path) {
+    int rpc_getFile(const char* rootDir, const char* path) {
 	std::cout << __func__ << " : " << path << endl;
 	File requestedFile;
         FileContent contentPart;
         ClientContext context;
         SequentialFileWriter writer;
-        std::string filename = path;
+        std::string filename(path);
 
         requestedFile.set_path(path);
         std::unique_ptr < ClientReader < FileContent > > reader(stub_ -> afsfuse_getFile( & context, requestedFile));
         try {
             while (reader -> Read( & contentPart)) {
-                filename = contentPart.name();
-                writer.OpenIfNecessary(contentPart.name());
+                filename = std::string(rootDir) + "/" + contentPart.name();
+                writer.OpenIfNecessary(filename);
                 auto *
                     const data = contentPart.mutable_content();
                 writer.Write( * data);

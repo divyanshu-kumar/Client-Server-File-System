@@ -13,10 +13,75 @@
 
 #include "AfsClient.h"
 
+const char *rootDir = "/users/dkumar27/AFS2/client/";
+const char *CachedFolderName = ".cached";
+
 static struct options {
     AfsClient * afsclient;
     int show_help;
 } options;
+
+class Cache {
+        string cachedRoot;
+public:
+        Cache() {
+                string currentWorkDir = getCurrentWorkingDir();
+                printf("Current Working Dir : %s\n", currentWorkDir.c_str());
+                cachedRoot = currentWorkDir + "/" + CachedFolderName;
+                makeCacheFolder();
+        }
+
+        void makeCacheFolder() {
+                struct stat buffer;
+                if (stat(cachedRoot.c_str(), &buffer) == 0) {
+                        printf("%s : Cached folder already exists. Path = %s\n", __func__, cachedRoot.c_str());
+                }
+                else {
+                        int status = mkdir(cachedRoot.c_str(), 0777);
+
+                        if (status != 0) {
+                                printf("Failed to create cached directory!\n");
+                        }
+                        else {
+                                printf("Successfully created cached directory.\n");
+                        }
+                }
+        }
+
+        string getCachedPath(const char * path) {
+                return cachedRoot + "/" + string(path);
+        }
+
+
+        string getCurrentWorkingDir() {
+                char arg1[20];
+                char exepath[PATH_MAX + 1] = {0};
+
+                sprintf( arg1, "/proc/%d/exe", getpid() );
+                readlink( arg1, exepath, 1024 );
+                std::string s_path(exepath);
+                std::size_t lastPos = s_path.find_last_of("/");
+                return s_path.substr(0, lastPos);
+        }
+
+	bool isCached(const char * path) {
+		std::string s_path(getCachedPath(path));
+    		printf("%s : %s \n", __func__, s_path.c_str());
+    		struct stat buffer;
+    		if (stat(s_path.c_str(), &buffer) != 0) {
+			return false;
+    		}
+    		return true;
+	}
+
+	void cacheFile(const char * path) {
+		printf("%s : Fetching file %s from server.\n", __func__, path);
+        	options.afsclient -> rpc_getFile(cachedRoot.c_str(), path);
+	}
+};
+
+Cache cache;
+
 
 #define OPTION(t, p)                           \
        { t, offsetof(struct options, p), 1 }
@@ -54,15 +119,33 @@ static int client_readdir(const char * path, void * buf, fuse_fill_dir_t filler,
 }
 
 static int client_open(const char * path, struct fuse_file_info * fi) {
-    std::string s_path(path);
-    //printf("%s : %s \n", __func__, s_path);
-    //options.afsclient -> rpc_getFile(s_path);
-    return options.afsclient -> rpc_open(path, fi);
+    std::string s_path(cache.getCachedPath(path));
+    
+    /*printf("%s : %s \n", __func__, s_path.c_str());
+    struct stat buffer;
+    if (stat(s_path.c_str(), &buffer) != 0) {
+	printf("%s : Fetching file %s from server.\n", __func__, path);
+	options.afsclient -> rpc_getFile(cache.getPath().c_str(), path);
+    }
+    else {
+	printf("%s : File %s found locally. Opening file..\n", __func__, s_path.c_str());
+    }
+    */
+    if (cache.isCached(path) == false) {
+    	cache.cacheFile(path);
+    }
+    int fd = open(s_path.c_str(), O_RDONLY);
+    printf("%s : File openend successfully. Fd = %d", __func__, fd);
+    fi->fh = fd;
+    return 0;
+    //options.afsclient -> rpc_getFile(rootDir, path);
+    //return options.afsclient -> rpc_open(path, fi);
 }
 
 static int client_read(const char * path, char * buf, size_t size, off_t offset,
     struct fuse_file_info * fi) {
     printf("%s \n", __func__);
+    //if (cache.isCached)
     return options.afsclient -> rpc_read(path, buf, size, offset, fi);
 }
 
@@ -111,6 +194,20 @@ static int client_mknod(const char * path, mode_t mode, dev_t rdev) {
     return options.afsclient -> rpc_mknod(path, mode, rdev);
 }
 
+static int client_flush(const char * path, struct fuse_file_info * fi) {
+    string s_path(cache.getCachedPath(path));
+    printf("%s : File = %s\n", __func__, s_path.c_str());
+    int res = close(fi -> fh);
+    if (res == -1) {
+	printf("%s : Failed to flush file.\n", __func__);
+	return -errno;
+    }
+    else {
+	printf("%s : Successfully flushed file.\n", __func__);
+    }
+    return 0;
+}
+
 static struct client_operations: fuse_operations {
     client_operations() {
         init = client_init;
@@ -126,10 +223,11 @@ static struct client_operations: fuse_operations {
         rename = client_rename;
         utimens = client_utimens;
         mknod = client_mknod;
-
+	flush = client_flush;
     }
 
 } client_oper;
+
 
 int main(int argc, char * argv[]) {
     printf("%s \n", __func__);
@@ -147,6 +245,5 @@ int main(int argc, char * argv[]) {
         args.argv[0] = (char * )
         "";
     }
-
     return fuse_main(argc, argv, & client_oper, & options);
 }

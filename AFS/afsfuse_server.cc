@@ -27,6 +27,8 @@ using namespace afsfuse;
 
 using namespace std;
 
+const char *rootDir = "/users/dkumar27/AFS2/server";
+
 struct sdata {
     int a;
     char b[10] = {};
@@ -113,7 +115,7 @@ class AfsServiceImpl final: public AFS::Service {
     Status afsfuse_open(ServerContext * context,
         const FuseFileInfo * fi_req,
             FuseFileInfo * fi_reply) override {
-        printf("%s \n", __func__);
+        printf("%s : %s\n", __func__, fi_req->path().c_str());
         char server_path[512] = {
             0
         };
@@ -398,22 +400,24 @@ class AfsServiceImpl final: public AFS::Service {
         ServerContext * context,
         const File * file,
             ServerWriter < FileContent > * writer) override {
-        const string filepath = std::string(file -> path());
-        std::cout << __func__ << " : " << filepath << endl;
         struct stat buffer;
-        if (stat(filepath.c_str(), & buffer) == 0) {
+	string filepath = std::string(rootDir) + std::string(file -> path());
+        std::cout << __func__ << " : " << filepath.c_str() << endl;
+	if (stat(filepath.c_str(), & buffer) == 0) {
             printf("%s: File exists\n", __func__);
         }
         try {
-            FileReaderIntoStream < ServerWriter < FileContent > > reader(filepath, * writer);
+            FileReaderIntoStream < ServerWriter < FileContent > > reader(filepath.c_str(), * writer);
             const size_t chunk_size = 1UL << 20; // Hardcoded to 1MB, which seems to be recommended from experience.
             reader.Read(chunk_size);
+	    std::cout << "Sending chunk of size 1 MB from server to client" << std::endl;
         } catch (const std::exception & ex) {
             std::ostringstream sts;
-            sts << "Error sending the file " << filepath << " : " << ex.what();
+            sts << "Error sending the file " << filepath.c_str() << " : " << ex.what();
             std::cerr << sts.str() << std::endl;
             return Status(StatusCode::ABORTED, sts.str());
         }
+	std::cout << __func__ << " : DONE " << std::endl;
         return Status::OK;
     }
 };
