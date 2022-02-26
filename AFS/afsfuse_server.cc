@@ -49,10 +49,16 @@ struct sdata {
 };
 
 void translatePath(const char* client_path, char* server_path) {
-    strcat(server_path, "./server");
-    strcat(server_path + 8, client_path);
+    string path;
+    if (client_path[0] == '/') 
+        path = rootDir + client_path;
+    else 
+        path = rootDir + "/" + client_path;
+    strcat(server_path, path.c_str());
+    // strcat(server_path, "./server");
+    // strcat(server_path + 8, client_path);
     printf("%s : Client path = %s, server path = %s\n", __func__, client_path, server_path);
-    server_path[strlen(server_path)] = '\0';
+    // server_path[strlen(server_path)] = '\0';
 }
 
 class AfsServiceImpl final : public AFS::Service {

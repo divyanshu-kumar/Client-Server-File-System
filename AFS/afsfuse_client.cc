@@ -108,8 +108,6 @@ static int client_getattr(const char *path, struct stat *stbuf,
     // options.afsclient->rpc_getattr(path, stbuf);
     int res = 0;
 
-	(void) path;
-
 	if(fi != NULL) {
         printf("%s : Local with fd = %lu, file = %s\n", __func__, fi -> fh, path);
 		res = fstat(fi->fh, stbuf);
@@ -117,8 +115,9 @@ static int client_getattr(const char *path, struct stat *stbuf,
 	else {
         printf("%s : Server with path = %s\n", __func__, path);
         // res = lstat(cache->getCachedPath(path).c_str(), stbuf);
-		res = options.afsclient->rpc_getattr(path, stbuf);
+		return options.afsclient->rpc_getattr(path, stbuf);
     }
+    
 	if (res == -1) {
         perror(strerror(errno));
 		return -errno;
@@ -214,7 +213,7 @@ static int client_write(const char *path, const char *buf, size_t size,
 
 static int client_mkdir(const char *path, mode_t mode) {
     printf("%s : Path = %s \n", __func__, path);
-    int res = mkdir(cache->getCachedPath(path).c_str(), mode);
+    int res = mkdir(cache->getCachedPath(path).c_str(), 0777);
 
     if (res == -1) {
         perror(strerror(errno));
