@@ -3,6 +3,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <vector>
+#include <chrono>
 
 #include "afsfuse.grpc.pb.h"
 #include "file_reader_into_stream.h"
@@ -36,13 +37,19 @@ class AfsClient {
         String p;
         p.set_str(path);
         memset(output, 0, sizeof(struct stat));
+        // unsigned int client_connection_timeout = 5;
 
+        // // Set timeout for API
+        // std::chrono::system_clock::time_point deadline =
+        //     std::chrono::system_clock::now() + std::chrono::seconds(client_connection_timeout);
+        // context.set_deadline(deadline);
         Status status = stub_->afsfuse_getattr(&context, p, &result);
+        printf("Returned from getattr\n");
         if (result.err() != 0) {
-            // std::cout << "errno: " << result.err() << std::endl;
+            std::cout << "errno: " << result.err() << std::endl;
             return -result.err();
         }
-
+        std::cout << "errno: " << result.err() << std::endl;
         output->st_ino = result.ino();
         output->st_mode = result.mode();
         output->st_nlink = result.nlink();
@@ -54,7 +61,7 @@ class AfsClient {
         output->st_atime = result.atime();
         output->st_mtime = result.mtime();
         output->st_ctime = result.ctime();
-
+        
         return 0;
     }
 
@@ -299,7 +306,7 @@ class AfsClient {
             stub_->afsfuse_getFile(&context, requestedFile));
         try {
             while (reader->Read(&contentPart)) {
-                filename = std::string(rootDir) + "/" + contentPart.name();
+                filename = std::string(rootDir) + "/" + string(path);
                 writer.OpenIfNecessary(filename);
                 auto* const data = contentPart.mutable_content();
                 writer.Write(*data);

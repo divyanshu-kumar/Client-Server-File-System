@@ -35,7 +35,7 @@ string getCurrentWorkingDir() {
     char exepath[PATH_MAX + 1] = {0};
 
     sprintf(arg1, "/proc/%d/exe", getpid());
-    readlink(arg1, exepath, 1024);
+    int res = readlink(arg1, exepath, 1024);
     std::string s_path(exepath);
     std::size_t lastPos = s_path.find_last_of("/");
     return s_path.substr(0, lastPos);

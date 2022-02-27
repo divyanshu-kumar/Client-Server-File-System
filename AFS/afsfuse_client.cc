@@ -45,10 +45,6 @@ class Cache {
 
     string getCachedPath(const char *path) {
         printf("%s : Path = %s\n", __func__, path);
-        // if (path[0] == '/') {
-        //     printf("%s : Returned %s \n", __func__, (cachedRoot +  string(path)).c_str());
-        //     return cachedRoot + string(path);
-        // }
         printf("%s : Returned %s \n", __func__, (cachedRoot + "/" + string(path)).c_str());
         return cachedRoot + "/" + string(path);
     }
@@ -66,6 +62,33 @@ class Cache {
     }
 
     void cacheFile(const char *path) {
+        std::string s_path(path);
+        std::size_t prevPos = 0, pos = s_path.find('/');
+        while (pos != std::string::npos) {
+            prevPos = pos;
+            pos = s_path.find('/', pos + 1);
+            if (pos == std::string::npos) {
+                // It's a file, break the loop
+                break;
+            }
+            string folderName = s_path.substr(prevPos + 1, pos - prevPos - 1);
+            printf("Making new directory in .cached - %s\n", folderName.c_str());
+            struct stat buffer;
+            string tempPath = cachedRoot + s_path.substr(0, pos);
+            printf("New Directory in .cached - %s\n", tempPath.c_str());
+            if (stat(tempPath.c_str(), &buffer) != 0) {
+                int res = mkdir(tempPath.c_str(), 0777);
+                if (res == -1) {
+                    printf("Failed creating new folder!\n");
+                }
+                else {
+                    printf("Created folder successfully!\n");
+                }
+            }
+            else {
+                printf("Folder already exists!\n");
+            }
+        }
         printf("%s : Fetching file %s from server.\n", __func__, path);
         options.afsclient->rpc_getFile(cachedRoot.c_str(), path);
         struct stat buffer;
@@ -74,6 +97,7 @@ class Cache {
                    getCachedPath(path).c_str());
         } else {
             printf("Failed to cache file %s\n", getCachedPath(path).c_str());
+            perror(strerror(errno));
         }
     }
 };
@@ -99,13 +123,22 @@ static void *client_init(struct fuse_conn_info *conn, struct fuse_config *cfg) {
 
 
 static void client_destroy(void *privateData) {
+    string command = "rm -rf " + cache->getCachedPath("");
+    int res = system(command.c_str());
+    if (res == 0) {
+        printf("%s : Successfully cleared cache!\n");
+    }
+    else {
+        printf("%s : Not able to cleare cache!\n");
+        perror(strerror(errno));
+    }
     delete cache;
 }
 
 static int client_getattr(const char *path, struct stat *stbuf,
                           struct fuse_file_info *fi) {
     memset(stbuf, 0, sizeof(struct stat));
-    // options.afsclient->rpc_getattr(path, stbuf);
+    
     int res = 0;
 
 	if(fi != NULL) {
@@ -117,7 +150,7 @@ static int client_getattr(const char *path, struct stat *stbuf,
         // res = lstat(cache->getCachedPath(path).c_str(), stbuf);
 		return options.afsclient->rpc_getattr(path, stbuf);
     }
-    
+
 	if (res == -1) {
         perror(strerror(errno));
 		return -errno;
@@ -183,6 +216,35 @@ static int client_read(const char *path, char *buf, size_t size, off_t offset,
     return res;
 }
 
+// static int client_pread(const char *path, char *buf, size_t size, off_t offset,
+//                        struct fuse_file_info *fi) {
+//     // if (cache->isCached(path) == false) {
+//     //     cache->cacheFile(path);
+//     // }
+//     int fd = -1;//fi->fh;  // open(cache->getCachedPath(path).c_str(), O_RDONLY);
+//     if (fi) {
+//         fd = fi -> fh;
+//     }
+//     else {
+//         fd = open(cache->getCachedPath(path).c_str(), O_RDONLY);
+//     }
+//     if (fd == -1) {
+//         printf("%s : Filed opened failed in read, file = %s\n", __func__,
+//                cache->getCachedPath(path).c_str());
+//         perror(strerror(errno));
+//         return -1;
+//     }
+//     printf("%s : File = %s, fd = %d \n", __func__, path, fd);
+    
+//     int res = pread(fd, buf, size, offset);
+//     if (res == -1) {
+//         perror(strerror(errno));
+//         return -1;
+//     }
+
+//     return res;
+// }
+
 static int client_write(const char *path, const char *buf, size_t size,
                         off_t offset, struct fuse_file_info *fi) {
     
@@ -211,9 +273,38 @@ static int client_write(const char *path, const char *buf, size_t size,
     return res;
 }
 
+// static int client_pwrite(const char *path, const char *buf, size_t size,
+//                         off_t offset, struct fuse_file_info *fi) {
+    
+//     int fd = -1;//fi->fh;  // open(cache->getCachedPath(path).c_str(), O_RDONLY);
+//     if (fi) {
+//         fd = fi -> fh;
+//     }
+//     else {
+//         fd = open(cache->getCachedPath(path).c_str(), O_RDONLY);
+//     }
+//     printf("%s : File to write = %s, fd = %d\n", __func__, path, fd);
+//     if (fd == -1) {
+//         printf("%s : Filed opened failed in write, file = %s\n", __func__,
+//                cache->getCachedPath(path).c_str());
+//         perror(strerror(errno));
+//         return -1;
+//     }
+//     printf("%s : Starting to pwrite\n", __func__);
+//     int res = pwrite(fd, buf, size, offset);
+//     printf("%s : Finished pwrite, wrote %d bytes \n", __func__, res);
+//     //fsync(fd);
+//     if (res == -1) {
+//         perror(strerror(errno));
+//         return -1;
+//     }
+//     return res;
+// }
+
 static int client_mkdir(const char *path, mode_t mode) {
     printf("%s : Path = %s \n", __func__, path);
-    int res = mkdir(cache->getCachedPath(path).c_str(), 0777);
+    // TODO change order of mkdir calls after mirroring
+    int res = mkdir(cache->getCachedPath(path).c_str(), mode);
 
     if (res == -1) {
         perror(strerror(errno));
@@ -227,6 +318,7 @@ static int client_mkdir(const char *path, mode_t mode) {
 
 static int client_rmdir(const char *path) {
     printf("%s \n", __func__);
+    // TODO change order of mkdir calls after mirroring
     int res = rmdir(cache->getCachedPath(path).c_str());
 
     if (res == -1) {
@@ -242,9 +334,13 @@ static int client_create(const char *path, mode_t mode,
                          struct fuse_file_info *fi) {
     printf("%s : File = %s\n", __func__, path);
     int res = options.afsclient->rpc_create(path, mode, fi);
-    cache->cacheFile(path);
-    int fd = open(cache->getCachedPath(path).c_str(), fi->flags, mode);
-    fi -> fh = fd;
+    // TODO check if create actually succeeded
+    int fd = -1;
+    if (res == 0) {
+        cache->cacheFile(path);
+        fd = open(cache->getCachedPath(path).c_str(), fi->flags, mode);
+        fi -> fh = fd;
+    }
     if (res == -1) {
         printf("%s : Failed to create file = %s, fd = %d\n",
                     __func__, cache->getCachedPath(path).c_str(), fd);
@@ -256,36 +352,11 @@ static int client_create(const char *path, mode_t mode,
     }
     return res;
 }
-static int client_create_old(const char *path, mode_t mode,
-                         struct fuse_file_info *fi) {
-    printf("%s : File = %s\n", __func__, path);
-    string s_path(path);
-    std::size_t lastPos = s_path.find_last_of(".");
-    int res = 0;
-    if (true || s_path.substr(lastPos + 1) == "swp") {
-        int fd = open(cache->getCachedPath(path).c_str(), fi->flags, mode);
-        if (fd == -1) {
-            res = -1;
-            printf("%s : Failed to open file in create mode. File = %s\n",
-                   __func__, cache->getCachedPath(path).c_str());
-            perror(strerror(errno));
-        } else {
-            printf("%s : Created file = %s, fd = %d\n",
-                   __func__, cache->getCachedPath(path).c_str(), fd);
-            //close(fd);
-            fi->fh = fd;
-        }
-        res = options.afsclient->rpc_create(path, mode, fi);
-    } else {
-        res = options.afsclient->rpc_create(path, mode, fi);
-        cache->cacheFile(path);
-    }
-    return res;
-}
+
 
 static int client_unlink(const char *path) {
     printf("%s : File = %s \n", __func__, cache->getCachedPath(path).c_str());
-
+    // TODO change order of unlink calls after mirroring
     int res = unlink(cache->getCachedPath(path).c_str());
     if (res == -1) {
         perror(strerror(errno));
@@ -297,6 +368,7 @@ static int client_unlink(const char *path) {
 
 static int client_rename(const char *from, const char *to, unsigned int flags) {
     printf("%s \n", __func__);
+    // TODO change order of rename calls after mirroring
     int res = rename(cache->getCachedPath(from).c_str(),
                      cache->getCachedPath(to).c_str());
     if (res == -1) {
@@ -309,6 +381,7 @@ static int client_rename(const char *from, const char *to, unsigned int flags) {
 static int client_utimens(const char *path, const struct timespec ts[2],
                           struct fuse_file_info *fi) {
     printf("%s \n", __func__);
+    // TODO change order of utimens calls after mirroring
     int res = utimensat(AT_FDCWD, cache->getCachedPath(path).c_str(), ts, AT_SYMLINK_NOFOLLOW);
 
     if (res == -1) {
@@ -320,7 +393,7 @@ static int client_utimens(const char *path, const struct timespec ts[2],
 
 static int client_mknod(const char *path, mode_t mode, dev_t rdev) {
     printf("%s \n", __func__);
-    
+    // TODO change order of mknod calls after mirroring
     int res;
 
     if (S_ISFIFO(mode))
@@ -361,6 +434,7 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
         return 0;
     }
     printf("%s : File = %s, fd = %lu\n", __func__, s_path.c_str(), fi -> fh);
+    fsync(fi->fh);
     int res = close(fi->fh);
     if (res == -1) {
         printf("%s : Failed to release file with fd = %lu.\n", __func__,
@@ -386,7 +460,9 @@ static struct client_operations : fuse_operations {
         readdir = client_readdir;
         open = client_open;
         read = client_read;
+        // pread = client_pread;
         write = client_write;
+        // pwrite = client_pwrite;
         create = client_create;
         mkdir = client_mkdir;
         rmdir = client_rmdir;
