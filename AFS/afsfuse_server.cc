@@ -415,6 +415,7 @@ class AfsServiceImpl final : public AFS::Service {
             try {
                 // FIXME: Do something reasonable if a file with a different
                 // name but the same ID already exists
+		printf("Content Part Name: %s\n", contentPart.name().c_str());
                 string path = (rootDir + "/" + contentPart.name());
                 printf("Writing to file %s\n", path.c_str());
                 

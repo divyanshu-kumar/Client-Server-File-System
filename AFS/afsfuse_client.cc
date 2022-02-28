@@ -48,6 +48,13 @@ class Cache {
         printf("%s : Returned %s \n", __func__, (cachedRoot + "/" + string(path)).c_str());
         return cachedRoot + "/" + string(path);
     }
+    
+    string getTmpCachedPath(const char *path) {
+        printf("%s : Path = %s\n", __func__, path);
+        printf("%s : Returned %s \n", __func__, (cachedRoot + "/" + string(path) + ".tmp" + std::to_string(std::hash<std::string>()(string(path)))).c_str());
+        return cachedRoot + "/" + string(path) + ".tmp" + std::to_string(std::hash<std::string>()(string(path)));
+    }
+
 
     bool isCached(const char *path) {
         std::string s_path(getCachedPath(path));
@@ -174,14 +181,18 @@ static int client_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 }
 
 static int client_open(const char *path, struct fuse_file_info *fi) {
-    std::string s_path(cache->getCachedPath(path));
+    std::string s_path(cache->getTmpCachedPath(path));
 
     if (cache->isCached(path) == false) {
         cache->cacheFile(path);
     }
 
+    string command = "cp " + cache->getCachedPath(path) + " " + cache->getTmpCachedPath(path);
+    int res = system(command.c_str());
+
+    printf("%s: Fuse Flags: %d\n", __func__, fi->flags);
     unsigned long fd = open(s_path.c_str(), fi->flags);
-    printf("%s : File openend successfully. Fd = %lu\n", __func__, fd);
+    printf("%s : File openend successfully. Fd = %lu, File = %s\n", __func__, fd, cache->getTmpCachedPath(path).c_str());
     fi->fh = fd;
 
     return 0;
@@ -193,21 +204,24 @@ static int client_read(const char *path, char *buf, size_t size, off_t offset,
     //     cache->cacheFile(path);
     // }
     int fd = -1;//fi->fh;  // open(cache->getCachedPath(path).c_str(), O_RDONLY);
+    int res = -1;
     if (fi) {
         fd = fi -> fh;
     }
     else {
-        fd = open(cache->getCachedPath(path).c_str(), O_RDONLY);
+	string command = "cp " + cache->getCachedPath(path) + " " + cache->getTmpCachedPath(path);
+        res = system(command.c_str());
+        fd = open(cache->getTmpCachedPath(path).c_str(), O_RDONLY);
     }
     if (fd == -1) {
         printf("%s : Filed opened failed in read, file = %s\n", __func__,
-               cache->getCachedPath(path).c_str());
+               cache->getTmpCachedPath(path).c_str());
         perror(strerror(errno));
         return -1;
     }
-    printf("%s : File = %s, fd = %d \n", __func__, path, fd);
+    printf("%s : File = %s, fd = %d \n", __func__, cache->getTmpCachedPath(path).c_str(), fd);
     
-    int res = pread(fd, buf, size, offset);
+    res = pread(fd, buf, size, offset);
     if (res == -1) {
         perror(strerror(errno));
         return -1;
@@ -249,21 +263,24 @@ static int client_write(const char *path, const char *buf, size_t size,
                         off_t offset, struct fuse_file_info *fi) {
     
     int fd = -1;//fi->fh;  // open(cache->getCachedPath(path).c_str(), O_RDONLY);
+    int res = -1;
     if (fi) {
         fd = fi -> fh;
     }
     else {
-        fd = open(cache->getCachedPath(path).c_str(), O_RDONLY);
+        string command = "cp " + cache->getCachedPath(path) + " " + cache->getTmpCachedPath(path);
+        res = system(command.c_str());
+        fd = open(cache->getCachedPath(path).c_str(), O_WRONLY);
     }
-    printf("%s : File to write = %s, fd = %d\n", __func__, path, fd);
+    printf("%s : File to write = %s, fd = %d\n", __func__, cache->getTmpCachedPath(path).c_str(), fd);
     if (fd == -1) {
         printf("%s : Filed opened failed in write, file = %s\n", __func__,
-               cache->getCachedPath(path).c_str());
+               cache->getTmpCachedPath(path).c_str());
         perror(strerror(errno));
         return -1;
     }
     printf("%s : Starting to pwrite\n", __func__);
-    int res = pwrite(fd, buf, size, offset);
+    res = pwrite(fd, buf, size, offset);
     printf("%s : Finished pwrite, wrote %d bytes \n", __func__, res);
     //fsync(fd);
     if (res == -1) {
@@ -338,17 +355,18 @@ static int client_create(const char *path, mode_t mode,
     int fd = -1;
     if (res == 0) {
         cache->cacheFile(path);
-        fd = open(cache->getCachedPath(path).c_str(), fi->flags, mode);
+	printf("%s : Opening tmp file = %s\n", __func__, cache->getTmpCachedPath(path).c_str());
+        fd = open(cache->getTmpCachedPath(path).c_str(), fi->flags, mode);
         fi -> fh = fd;
     }
     if (res == -1) {
         printf("%s : Failed to create file = %s, fd = %d\n",
-                    __func__, cache->getCachedPath(path).c_str(), fd);
+                    __func__, cache->getTmpCachedPath(path).c_str(), fd);
         perror(strerror(errno));
     }
     else {
         printf("%s : Created file = %s, fd = %d\n",
-                    __func__, cache->getCachedPath(path).c_str(), fd);
+                    __func__, cache->getTmpCachedPath(path).c_str(), fd);
     }
     return res;
 }
@@ -409,9 +427,9 @@ static int client_mknod(const char *path, mode_t mode, dev_t rdev) {
 }
 
 static int client_flush(const char *path, struct fuse_file_info *fi) {
-    string s_path(cache->getCachedPath(path));
+    string s_path(cache->getTmpCachedPath(path));
     if (fi == NULL) {
-        printf("%s : File handle is NULL!!!!!! File = %s", __func__, path);
+        printf("%s : File handle is NULL!!!!!! File = %s", __func__, cache->getTmpCachedPath(path));
         return 0;
     }
     printf("%s : File = %s, fd = %lu\n", __func__, s_path.c_str(), fi -> fh);
@@ -428,14 +446,19 @@ static int client_flush(const char *path, struct fuse_file_info *fi) {
 }
 
 static int client_release(const char *path, struct fuse_file_info *fi) {
-    string s_path(cache->getCachedPath(path));
     if (fi == NULL) {
-        printf("%s : File handle is NULL!!!!!! File = %s", __func__, path);
+        printf("%s : File handle is NULL!!!!!! File = %s", __func__, cache->getTmpCachedPath(path).c_str());
         return 0;
     }
-    printf("%s : File = %s, fd = %lu\n", __func__, s_path.c_str(), fi -> fh);
+    printf("%s : File = %s, fd = %lu\n", __func__, cache->getTmpCachedPath(path).c_str(), fi -> fh);
     fsync(fi->fh);
-    int res = close(fi->fh);
+    int res = rename(cache->getTmpCachedPath(path).c_str(), cache->getCachedPath(path).c_str());
+    if (res == -1) {
+	printf("%s : Renaming Failed for fd = %lu.\n", __func__, fi->fh);
+    } else {
+	printf("%s : %s successfully renamed to %s\n", __func__, cache->getTmpCachedPath(path).c_str(), cache->getCachedPath(path).c_str());
+    }
+    res = close(fi->fh);
     if (res == -1) {
         printf("%s : Failed to release file with fd = %lu.\n", __func__,
                fi->fh);
@@ -446,8 +469,8 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
                fi->fh);
     }
     printf("%s : Preparing to flush file %s to server..\n", __func__,
-           s_path.c_str());
-    options.afsclient->rpc_putFile(s_path.c_str());
+           path);
+    options.afsclient->rpc_putFile(cache->getCachedPath(path).c_str());
     printf("%s : Hopefully file is sent to server :p\n", __func__);
     return 0;
 }
