@@ -411,12 +411,15 @@ class AfsServiceImpl final : public AFS::Service {
         printf("%s : Begin\n", __func__);
         FileContent contentPart;
         SequentialFileWriter writer;
+	string originalPath = "";
+	string path = "";
         while (reader->Read(&contentPart)) {
             try {
                 // FIXME: Do something reasonable if a file with a different
                 // name but the same ID already exists
 		printf("Content Part Name: %s\n", contentPart.name().c_str());
-                string path = (rootDir + "/" + contentPart.name());
+		originalPath = (rootDir + "/" + contentPart.name());
+                path = (rootDir + "/" + contentPart.name() + ".tmp" + std::to_string(std::hash<std::string>()(string(path))));
                 printf("Writing to file %s\n", path.c_str());
                 
                 writer.OpenIfNecessary(path);
@@ -433,6 +436,15 @@ class AfsServiceImpl final : public AFS::Service {
                 return Status(status_code, ex.what());
             }
         }
+	int res = rename(path.c_str(), originalPath.c_str());
+	if (res == -1) {
+	    printf("%s : Renaming Failed\n", __func__);
+            perror(strerror(errno));
+            reply->set_err(errno);
+            return Status::OK;
+	} else {
+	    printf("%s : %s renamed to %s\n", __func__, path.c_str(), originalPath.c_str());
+	}
         reply->set_err(0);
         return Status::OK;
     }
