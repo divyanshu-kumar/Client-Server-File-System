@@ -133,7 +133,7 @@ static const struct fuse_opt option_spec[] = {
 
 static void show_help(const char *progname) {
     printf("%s \n", __func__);
-    std::cout << "usage: " << progname << " [-s -d] <mountpoint>\n\n";
+    std::cout << "usage: " << progname << " [-s -d] <mountpoint> <server_hostname>\n\n";
 }
 
 static void *client_init(struct fuse_conn_info *conn, struct fuse_config *cfg) {
