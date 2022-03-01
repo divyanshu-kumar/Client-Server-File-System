@@ -419,7 +419,7 @@ class AfsServiceImpl final : public AFS::Service {
                 // name but the same ID already exists
 		printf("Content Part Name: %s\n", contentPart.name().c_str());
 		originalPath = (rootDir + "/" + contentPart.name());
-                path = (rootDir + "/" + contentPart.name() + ".tmp" + std::to_string(std::hash<std::string>()(string(path))));
+                path = (rootDir + "/" + contentPart.name() + ".tmp" + std::to_string(rand() % 1000));
                 printf("Writing to file %s\n", path.c_str());
                 
                 writer.OpenIfNecessary(path);
