@@ -540,10 +540,14 @@ string getCurrentWorkingDir() {
 
 int main(int argc, char *argv[]) {
     printf("%s : %s\n", __func__, argv[0]);
+    std::string server_hostname = argv[argc-1];
+    std::string connection_string = server_hostname + ":50051";
+    std::cout << "connection string: " << connection_string << std::endl;
+    argc -= 1;
     struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
 
     options.afsclient = new AfsClient(grpc::CreateChannel(
-        "0.0.0.0:50051", grpc::InsecureChannelCredentials()));
+        connection_string, grpc::InsecureChannelCredentials()));
 
     if (fuse_opt_parse(&args, &options, option_spec, NULL) == -1) return 1;
 
