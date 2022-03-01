@@ -65,7 +65,10 @@ class Cache {
 	    return tmpPathMap[fd];
 	}
     }
-
+	
+    void clearTmpCachedPath(int fd) {
+ 	tmpPathMap.erase(fd);
+    }
 
     bool isCached(const char *path) {
         std::string s_path(getCachedPath(path));
@@ -482,6 +485,7 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
 	printf("%s : %s successfully renamed to %s\n", __func__, tmpCachedPath.c_str(), cache->getCachedPath(path).c_str());
     }
     res = close(fi->fh);
+    cache->clearTmpCachedPath(fi->fh);
     if (res == -1) {
         printf("%s : Failed to release file with fd = %lu.\n", __func__,
                fi->fh);
