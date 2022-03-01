@@ -33,6 +33,16 @@ class Cache {
         if (stat(cachedRoot.c_str(), &buffer) == 0) {
             printf("%s : Cached folder already exists. Path = %s\n", __func__,
                    cachedRoot.c_str());
+            // if cache folder exists, it means the client crashed. Clearing cache so that files are fetched from server
+            string command = "rm -rf " + cachedRoot + "/*";
+            int res = system(command.c_str());
+            if (res == 0) {
+                printf("Successfully cleaned all files in cache!\n");
+            }
+            else {
+                printf("Not able to clean files in cache!\n");
+                perror(strerror(errno));
+            }
         } else {
             int status = mkdir(cachedRoot.c_str(), 0777);
 
