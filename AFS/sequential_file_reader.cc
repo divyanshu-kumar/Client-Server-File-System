@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <iostream>
 
 #include "sequential_file_reader.h"
 #include "utils.h"
@@ -42,12 +43,14 @@ namespace {
     };
 };  // Anonymous namespace
 
-SequentialFileReader::SequentialFileReader(const std::string& file_name)
-    : m_file_path(file_name)
+SequentialFileReader::SequentialFileReader(const std::string& root_path, const std::string& file_name)
+    : m_root_path(root_path)
+    , m_file_path(file_name)
     , m_data(nullptr)
     , m_size(0)
 {
-    int fd = open(file_name.c_str(), O_RDONLY);
+    std::string s_path = m_root_path + m_file_path;
+    int fd = open(s_path.c_str(), O_RDONLY);
     if (-1 == fd) {
         raise_from_errno("Failed to open file.");
     }
@@ -99,7 +102,7 @@ void SequentialFileReader::Read(size_t max_chunk_size)
         // we need them, they'll be in the cache.
 
         OnChunkAvailable(m_data.get() + bytes_read, bytes_to_read);
-
+        // std::cout << __func__ << " \t : Sending chunk.. " << m_data.get() << std::endl;
         // If we implemented the optimisation suggested above, now would be the time to set the
         // advice POSIX_MADV_SEQUENTIAL for the data we have just finished reading. Note we should
         // not use POSIX_MADV_DONTNEED because Linux ignores it (see the posix_madvise man page),

@@ -2,8 +2,9 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <vector>
+
 #include <chrono>
+#include <vector>
 
 #include "afsfuse.grpc.pb.h"
 #include "file_reader_into_stream.h"
@@ -41,15 +42,16 @@ class AfsClient {
 
         // // Set timeout for API
         // std::chrono::system_clock::time_point deadline =
-        //     std::chrono::system_clock::now() + std::chrono::seconds(client_connection_timeout);
+        //     std::chrono::system_clock::now() +
+        //     std::chrono::seconds(client_connection_timeout);
         // context.set_deadline(deadline);
         Status status = stub_->afsfuse_getattr(&context, p, &result);
-        printf("Returned from getattr\n");
         if (result.err() != 0) {
-            std::cout << "errno: " << result.err() << std::endl;
+            printf("%s \t : %s\n", __func__, path.c_str());
+            perror(strerror(result.err()));
             return -result.err();
         }
-        std::cout << "errno: " << result.err() << std::endl;
+
         output->st_ino = result.ino();
         output->st_mode = result.mode();
         output->st_nlink = result.nlink();
@@ -61,11 +63,14 @@ class AfsClient {
         output->st_atime = result.atime();
         output->st_mtime = result.mtime();
         output->st_ctime = result.ctime();
-        
+        output->st_atim.tv_sec = result.atimtvsec();
+        output->st_atim.tv_nsec = result.atimtvnsec();
+        output->st_mtim.tv_sec = result.mtimtvsec();
+        output->st_mtim.tv_nsec = result.mtimtvnsec();
         return 0;
     }
 
-    int rpc_readdir(string p, void* buf, fuse_fill_dir_t filler, vector<string> &readPaths) {
+    int rpc_readdir(string p, void* buf, fuse_fill_dir_t filler) {
         String path;
         path.set_str(p);
         Dirent result;
@@ -85,9 +90,7 @@ class AfsClient {
 
             st.st_ino = de.d_ino;
             st.st_mode = de.d_type << 12;
-            
-            readPaths.push_back(de.d_name);
-            
+
             if (filler(buf, de.d_name, &st, 0,
                        static_cast<fuse_fill_dir_flags>(0)))
                 break;
@@ -105,7 +108,7 @@ class AfsClient {
 
         fi_req.set_path(path);
         fi_req.set_flags(fi->flags);
-        cout << __func__ << " : " << string(path) << endl;
+        // printf("%s \t : File = %s\n", __func__, path);
         status = stub_->afsfuse_open(&ctx, fi_req, &fi_res);
         if (fi_res.err() == 0) fi->fh = fi_res.fh();
 
@@ -256,15 +259,15 @@ class AfsClient {
         return -result.err();
     }
 
-    int rpc_putFile(const char* path) {
-        printf("%s : %s\n", __func__, path);
+    int rpc_putFile(const char* root, const char* path) {
+        // printf("%s : %s\n", __func__, path);
         OutputInfo returnedFile;
         ClientContext context;
         std::unique_ptr<ClientWriter<FileContent>> writer(
             stub_->afsfuse_putFile(&context, &returnedFile));
         try {
-            FileReaderIntoStream<ClientWriter<FileContent>> reader(string(path),
-                                                                   *writer);
+            FileReaderIntoStream<ClientWriter<FileContent>> reader(
+                string(root), string(path), *writer);
 
             // TODO: Make the chunk size configurable
             const size_t chunk_size =
@@ -285,28 +288,28 @@ class AfsClient {
                       << std::endl;
             return false;
         } else {
-            std::cout << "Finished sending file : " << path
-                      << " with success code = " << returnedFile.err()
-                      << std::endl;
+            // std::cout << "Finished sending file : " << path
+            //   << " with success code = " << returnedFile.err()
+            //   << std::endl;
         }
 
         return true;
     }
 
     int rpc_getFile(const char* rootDir, const char* path) {
-        std::cout << __func__ << " : " << path << endl;
+        // std::cout << __func__ << " : " << path << endl;
         File requestedFile;
         FileContent contentPart;
         ClientContext context;
         SequentialFileWriter writer;
-        std::string filename(path);
+        std::string filename;
 
         requestedFile.set_path(path);
         std::unique_ptr<ClientReader<FileContent>> reader(
             stub_->afsfuse_getFile(&context, requestedFile));
         try {
             while (reader->Read(&contentPart)) {
-                filename = std::string(rootDir) + "/" + string(path);
+                filename = std::string(rootDir) + string(path);
                 writer.OpenIfNecessary(filename);
                 auto* const data = contentPart.mutable_content();
                 writer.Write(*data);
@@ -321,7 +324,7 @@ class AfsClient {
                           << status.error_message() << std::endl;
                 return false;
             }
-            std::cout << "Finished receiving the file " << path << std::endl;
+            // std::cout << "Finished receiving the file " << path << std::endl;
         } catch (const std::system_error& ex) {
             std::cerr << "Failed to receive " << filename << ": " << ex.what();
             return false;

@@ -12,10 +12,6 @@
 #include <time.h>
 #include <unistd.h>
 #include <thread>
-#include <mutex>
-#include <chrono>
-#include <iostream>
-#include <condition_variable>
 
 #include "AfsClient.h"
 
@@ -23,82 +19,12 @@ enum DebugLevel { LevelInfo = 0, LevelError = 1, LevelNone = 2 };
 
 const DebugLevel debugMode = LevelError;
 
-// const int stalenessLimit = 30;  // in seconds
-const unsigned long parallel_close_file_size_thresh = 16777216; // 16 Megabytes
-const bool enableTempFileWrites = true; // whether to enable creation of temporary files while writing
+const int stalenessLimit = 5;  // in seconds
 
 static struct options {
     AfsClient *afsclient;
     int show_help;
 } options;
-
-void closeOnServer(const char * path);
-void consumer();
-
-struct BoundedBuffer {
-    string* buffer;
-    int capacity;
-
-    int front;
-    int rear;
-    int count;
-
-    std::mutex lock;
-
-    std::condition_variable not_full;
-    std::condition_variable not_empty;
-
-    bool notDone;
-
-    BoundedBuffer(int capacity) : capacity(capacity), front(0), rear(0), count(0), notDone(true) {
-        buffer = new string[capacity];
-        cout << "Shared queue system created." << endl;
-    }
-
-    ~BoundedBuffer(){
-        notDone = false;
-        delete[] buffer;
-    }
-
-    void deposit(string path){
-        std::unique_lock<std::mutex> l(lock);
-
-        not_full.wait(l, [this](){return count != capacity; });
-
-        buffer[rear] = path;
-        rear = (rear + 1) % capacity;
-        ++count;
-
-        l.unlock();
-        not_empty.notify_one();
-    }
-
-    string fetch(){
-        std::unique_lock<std::mutex> l(lock);
-
-        not_empty.wait(l, [this](){return count != 0; });
-
-        string path = buffer[front];
-        front = (front + 1) % capacity;
-        --count;
-
-        l.unlock();
-        not_full.notify_one();
-
-        return path;
-    }
-
-    void submitRequest(string path);
-
-    void consumer();
-
-    void cleanupBuffer() {
-        notDone = false;
-    }
-};
-
-thread *close_thread;
-BoundedBuffer *closeBuffer;
 
 inline void get_time(struct timespec *ts) {
     clock_gettime(CLOCK_MONOTONIC, ts);
@@ -148,7 +74,6 @@ void printFileTimeFields(const char *func, const char *path) {
 
 class Cache {
     string cachedRoot;
-    unordered_map<int, std::string> tempFdToPathMap;
 
    public:
     Cache(string currentWorkDir, string cachedFolderName) {
@@ -184,36 +109,10 @@ class Cache {
         }
     }
 
-    string getCachedPath(const char *path, bool tempPath = false, int fd = -1) {
+    string getCachedPath(const char *path) {
         if (debugMode <= DebugLevel::LevelInfo) {
             printf("%s \t: Requested for %s , Returned %s \n", __func__, path,
                    (cachedRoot + string(path)).c_str());
-        }
-        if (enableTempFileWrites && tempPath == true) {
-            if (debugMode <= DebugLevel::LevelInfo) {
-                printf("%s \t: Requested for %s , Returned %s \n", __func__, path,
-                    (cachedRoot + string(path)).c_str());
-            }
-            string tempFileName;
-            if (fd == -1) {
-                tempFileName =  cachedRoot + 
-                                string(path) + 
-                                ".temp." + 
-                                std::to_string(rand() % 10000);
-            }
-            else {
-                auto it = tempFdToPathMap.find(fd);
-                if (it == tempFdToPathMap.end()) {
-                    if (debugMode <= DebugLevel::LevelError) {
-                        printf("%s \t: Requested temp path for fd = %d"
-                            " but it is not in map.\n", __func__, fd);
-                    }
-                }
-                else {
-                    tempFileName = it->second;
-                }
-            }
-            return tempFileName;
         }
         return cachedRoot + string(path);
     }
@@ -222,50 +121,27 @@ class Cache {
         if (debugMode <= DebugLevel::LevelInfo) {
             printf("%s \t: Path = %s\n", __func__, path);
         }
-        struct stat remoteFileStatBuffer;
-        int res = options.afsclient->rpc_getattr(path, &remoteFileStatBuffer);
-        if (res == -1) {
-            return;
-        }
+        struct timespec currentTime;
 
-        struct timespec lastModifiedTime;
-        lastModifiedTime.tv_sec = remoteFileStatBuffer.st_mtim.tv_sec;
-        lastModifiedTime.tv_nsec = remoteFileStatBuffer.st_mtim.tv_nsec;
+        get_time(&currentTime);
 
-        if (buffer->st_mtim.tv_sec != lastModifiedTime.tv_sec) {
-            printf("%s \t: File is pretty old. Let's refresh it.\n",
+        if ((currentTime.tv_sec - buffer->st_mtim.tv_sec) > stalenessLimit) {
+            if (debugMode <= DebugLevel::LevelInfo) {
+                printf("%s \t: File is pretty old. Let's refresh it.\n",
                        __func__);
+            }
+            struct stat remoteFileStatBuffer;
             int res =
                 options.afsclient->rpc_getattr(path, &remoteFileStatBuffer);
             if (res == -1) {
                 return;
             }
 
-            if (remoteFileStatBuffer.st_mtim.tv_sec - buffer->st_mtim.tv_sec != 0) {
+            if (remoteFileStatBuffer.st_mtim.tv_sec - buffer->st_mtim.tv_sec !=
+                0) {
                 fetchFile(path);
             }
         }
-        // struct timespec currentTime;
-        // clock_gettime(CLOCK_REALTIME, &currentTime);
-
-        // if ((currentTime.tv_sec - buffer->st_mtim.tv_sec) > stalenessLimit) {
-        //     printf("%s \t: Diff in time = %ld\n",
-        //                __func__, currentTime.tv_sec - buffer->st_mtim.tv_sec);
-        //     if (debugMode <= DebugLevel::LevelInfo) {
-        //         printf("%s \t: File is pretty old. Let's refresh it.\n",
-        //                __func__);
-        //     }
-        //     struct stat remoteFileStatBuffer;
-        //     int res =
-        //         options.afsclient->rpc_getattr(path, &remoteFileStatBuffer);
-        //     if (res == -1) {
-        //         return;
-        //     }
-
-        //     if (remoteFileStatBuffer.st_mtim.tv_sec - buffer->st_mtim.tv_sec != 0) {
-        //         fetchFile(path);
-        //     }
-        // }
     }
 
     bool isCached(const char *path) {
@@ -378,25 +254,11 @@ class Cache {
             perror(strerror(errno));
         }
     }
-
     void cacheFile(const char *path) {
         mirrorDirectoryStructure(path);
 
         fetchFile(path);
     }
-
-    void setTimeFileNameWithFd(int fd, string &path) {
-        tempFdToPathMap[fd] = path;
-    }
-
-    bool isTempFile(int fd) {
-        return tempFdToPathMap.find(fd) != tempFdToPathMap.end();
-    }
-
-    void clearTempFile(int fd) {
-        tempFdToPathMap.erase(fd);
-    }
-
 };
 
 Cache *cache;
@@ -409,25 +271,18 @@ static const struct fuse_opt option_spec[] = {
 
 static void show_help(const char *progname) {
     printf("%s \n", __func__);
-    std::cout << "usage: " << progname << " [-s -d] <mountpoint> [--server=ip:port, Default = localhost]\n\n";
-} 
+    std::cout << "usage: " << progname << " [-s -d] <mountpoint>\n\n";
+}
 
 static void *client_init(struct fuse_conn_info *conn, struct fuse_config *cfg) {
     if (debugMode <= DebugLevel::LevelInfo) {
         printf("%s \n", __func__);
     }
-    closeBuffer = new BoundedBuffer(100);
-    close_thread = new thread(&BoundedBuffer::consumer, closeBuffer);
     (void)conn;
     return NULL;
 }
 
 static void client_destroy(void *privateData) {
-    if (debugMode <= DebugLevel::LevelInfo) {
-        printf("%s \n", __func__);
-    }
-    closeBuffer->cleanupBuffer();
-    close_thread->join();
     string command = "rm -rf " + cache->getCachedPath("");
     int res = system(command.c_str());
     if (res == 0) {
@@ -500,49 +355,10 @@ static int client_open(const char *path, struct fuse_file_info *fi) {
         cache->cacheFile(path);
     }
 
-    unsigned long fd = -1;
-    
-    if (enableTempFileWrites) {
-        string tempFileName = cache->getCachedPath(path, true, -1);
-        string copyCommand  = "cp " + s_path + " " + tempFileName;
-        int res = system(copyCommand.c_str());
-
-        struct stat st_buf;
-        if (lstat(s_path.c_str(), &st_buf) != 0) {
-            if (debugMode <= DebugLevel::LevelError) {
-                printf("%s \t: Failed to stat local file = %s\n", __func__, path);
-            }
-            return 0;
-        }
-
-        struct timespec ts[2];
-        ts[0].tv_sec = st_buf.st_atim.tv_sec;
-        ts[0].tv_nsec = st_buf.st_atim.tv_nsec;
-        ts[1].tv_sec = st_buf.st_mtim.tv_sec;
-        ts[1].tv_nsec = st_buf.st_mtim.tv_nsec;
-
-        res = utimensat(AT_FDCWD, tempFileName.c_str(), ts, AT_SYMLINK_NOFOLLOW);
-
-        fd = open(tempFileName.c_str(), fi->flags);
-
-        cache->setTimeFileNameWithFd(fd, tempFileName);
+    unsigned long fd = open(s_path.c_str(), fi->flags);
+    if (debugMode <= DebugLevel::LevelInfo) {
+        printf("%s \t: File openend successfully. Fd = %lu\n", __func__, fd);
     }
-    else {
-        fd = open(s_path.c_str(), fi->flags);
-    }
-
-    if (fd == -1) {
-        if (debugMode <= DebugLevel::LevelError) {
-            printf("%s \t: Failed to open File. Path = %s\n", __func__, path);
-        }
-    }
-
-    else {
-        if (debugMode <= DebugLevel::LevelInfo) {
-            printf("%s \t: File openend successfully. Fd = %lu\n", __func__, fd);
-        }
-    }
-
     fi->fh = fd;
 
     return 0;
@@ -683,6 +499,17 @@ static int client_rmdir(const char *path) {
     return options.afsclient->rpc_rmdir(path);
 }
 
+bool isTempFile(const char *path) {
+    bool isTemp = false;
+    std::string filepath(path);
+    std::size_t lastPos = filepath.find_last_of(".");
+    if (lastPos + 2 < filepath.length()) {
+        isTemp =
+            (filepath[lastPos + 1] == 's') && (filepath[lastPos + 2] == 'w');
+    }
+    return isTemp;
+}
+
 static int client_create(const char *path, mode_t mode,
                          struct fuse_file_info *fi) {
     if (debugMode <= DebugLevel::LevelInfo) {
@@ -795,7 +622,7 @@ static int client_rename(const char *from, const char *to, unsigned int flags) {
 
 static int client_utimens(const char *path, const struct timespec ts[2],
                           struct fuse_file_info *fi) {
-    if (true || debugMode <= DebugLevel::LevelInfo) {
+    if (debugMode <= DebugLevel::LevelInfo) {
         printf("%s \t: Path = %s\n", __func__, path);
     }
     // TODO change order of utimens calls after mirroring
@@ -835,13 +662,12 @@ static int client_mknod(const char *path, mode_t mode, dev_t rdev) {
 }
 
 static int client_flush(const char *path, struct fuse_file_info *fi) {
-    if (debugMode <= DebugLevel::LevelInfo) {
+    if (true || debugMode <= DebugLevel::LevelInfo) {
         printf("%s \t: Path = %s\n", __func__, path);
     }
     struct timespec ts_close_start, ts_close_end;
     if (true || debugMode <= DebugLevel::LevelInfo) {
         get_time(&ts_close_start);
-        printf("%s : current time = %ld", __func__, ts_close_start.tv_sec);
     }
     string s_path(cache->getCachedPath(path));
     if (fi == NULL) {
@@ -873,14 +699,12 @@ static int client_flush(const char *path, struct fuse_file_info *fi) {
     if (true || debugMode <= DebugLevel::LevelInfo) {
         get_time(&ts_close_end);
         printf(
-            // "%s \t : Diff (ms) = %f \t"
-            // "Close started at (s) %lu \t (ns) %lu , \t ended at "
-            // "(s) %lu \t (ns) %lu\n",
-            // __func__, get_time_diff(&ts_close_start, &ts_close_end),
-            // ts_close_start.tv_sec, ts_close_start.tv_nsec,
-            // ts_close_end.tv_sec, ts_close_end.tv_nsec);
-            "%s \t : Diff (ms) = %f \n",
-            __func__, get_time_diff(&ts_close_start, &ts_close_end));
+            "%s \t : Diff (ms) = %f \t"
+            "Close started at (s) %lu \t (ns) %lu , \t ended at "
+            "(s) %lu \t (ns) %lu\n",
+            __func__, get_time_diff(&ts_close_start, &ts_close_end),
+            ts_close_start.tv_sec, ts_close_start.tv_nsec,
+            ts_close_end.tv_sec, ts_close_end.tv_nsec);
     }
     return res;
 }
@@ -895,7 +719,7 @@ unsigned long getFileSize(const char *path) {
 }
 
 
-void closeOnServer(const char * path) {
+void CloseOnServer(const char * path) {
     struct timespec ts_send_start, ts_send_end;
     get_time(&ts_send_start);
     int res = options.afsclient->rpc_putFile(cache->getCachedPath("").c_str(),
@@ -913,12 +737,7 @@ void closeOnServer(const char * path) {
     }
 }
 
-
-
 static int client_release(const char *path, struct fuse_file_info *fi) {
-    
-    fsync(fi->fh);
-    
     string s_path(cache->getCachedPath(path));
 
     struct timespec ts_close_start, ts_close_end;
@@ -940,6 +759,8 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
         printf("%s \t: File to release = %s, fd = %lu\n", __func__,
                s_path.c_str(), fi->fh);
     }
+
+    fsync(fi->fh);
 
     int res = 0;
     bool needToSend = true;
@@ -984,35 +805,7 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
         }
     }
 
-    int tempFd = -1;
-    string tempFileName;
-    bool isTempFile = cache->isTempFile(fi -> fh);
-
-    if (enableTempFileWrites && isTempFile) {
-        tempFd = fi -> fh;
-        tempFileName = cache->getCachedPath(path, true, tempFd);
-    }
-
     res = close(fi->fh);
-
-    if (res != -1 && enableTempFileWrites && isTempFile) {
-        int tempRes = rename(tempFileName.c_str(), cache->getCachedPath(path).c_str());
-        if (tempRes != -1) {
-            if (true || debugMode <= DebugLevel::LevelInfo) {
-                printf("%s \t: Renamed from %s to %s.\n", __func__,
-                   tempFileName.c_str(), cache->getCachedPath(path).c_str());
-            }
-        }
-        else {
-            if (debugMode <= DebugLevel::LevelError) {
-                printf("%s \t: Failed to rename from %s to %s.\n", __func__,
-                   tempFileName.c_str(), cache->getCachedPath(path).c_str());
-                printf("%s \t : %s\n", __func__, path);
-                perror(strerror(errno));
-            }
-        }
-        cache->clearTempFile(tempFd);
-    }
 
     if (res == -1) {
         if (debugMode <= DebugLevel::LevelError) {
@@ -1030,12 +823,11 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
     }
 
     if (needToSend) {
-        if (getFileSize(path) > parallel_close_file_size_thresh) {
-            closeBuffer->submitRequest(path);
-        }
-        else {
-            closeOnServer(path);
-        }
+        // Todo : check issue "Failed to send the file : "
+        // "Failed to map the file into memory. : No such device"
+        // std::thread clost_thread(&CloseOnServer, path);
+        // clost_thread.join();
+        CloseOnServer(path);
     }
     if (true || debugMode <= DebugLevel::LevelInfo) {
         get_time(&ts_close_end);
@@ -1084,27 +876,10 @@ int main(int argc, char *argv[]) {
     if (debugMode <= DebugLevel::LevelInfo) {
         printf("%s \t: %s\n", __func__, argv[0]);
     }
-
-    bool isServerArgPassed = false;
-    std::string server_address = "localhost:50051";
-    if (argc > 1) {
-        size_t pos = std::string(argv[argc - 1]).rfind("--server=", 0);
-        if (pos == 0) {
-            isServerArgPassed = true;
-            server_address = std::string(argv[argc - 1]).substr(string("--server=").length());
-        }
-    }
-
-    printf("%s \t: Connecting to server at %s...\n", __func__, server_address.c_str());
-
-    if (isServerArgPassed) {
-        argc -= 1;
-    }
-
     struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
 
     options.afsclient = new AfsClient(grpc::CreateChannel(
-        server_address.c_str(), grpc::InsecureChannelCredentials()));
+        "0.0.0.0:50051", grpc::InsecureChannelCredentials()));
 
     if (fuse_opt_parse(&args, &options, option_spec, NULL) == -1) return 1;
 
@@ -1144,20 +919,5 @@ int main(int argc, char *argv[]) {
             }
         }
     }
-
     return fuse_main(argc, argv, &client_oper, &options);
-}
-
-void BoundedBuffer::consumer(){
-    while (notDone) {
-        string path = fetch();
-        closeOnServer(path.c_str());
-        // std::cout << "Consumer fetched " << path << std::endl;
-        //std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    }
-}
-
-void BoundedBuffer::submitRequest(string path){
-    deposit(path);
-    // std::cout << "Produced " << path << std::endl;
 }
