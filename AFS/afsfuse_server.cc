@@ -236,10 +236,36 @@ class AfsServiceImpl final : public AFS::Service {
         return Status::OK;
     }
 
+    bool doesPathExist(std::string server_path) {
+        std::size_t lastPos = server_path.find_last_of("/");
+        struct stat tempStatBuffer;
+        return stat(server_path.substr(0, lastPos).c_str(), &tempStatBuffer) == 0;
+    }
+
+    bool createPath(std::string server_path) {
+        printf("%s : Path does not exist\n Creating Path", __func__);
+        std::size_t lastPos = server_path.find_last_of("/");
+        std::string toBeCreatedPath = server_path.substr(0, lastPos);
+        string command = "mkdir -p " + toBeCreatedPath;
+        int res = system(command.c_str());		
+        return res == 0;
+    }
+
     Status afsfuse_create(ServerContext* context, const CreateRequest* req,
                           CreateResult* reply) override {
         char server_path[512] = {0};
         translatePath(req->path().c_str(), server_path);
+
+        if (!doesPathExist(server_path)) {
+            bool pathCreated = createPath(server_path);
+            if (pathCreated) {
+                printf("%s : %s path Creation Success\n", __func__, server_path);
+            } else {
+                printf("%s : %s path Creation Failed\n", __func__, server_path);
+                reply->set_err(errno);
+                return Status::OK;
+            }
+        }	
 
         // cout<<"[DEBUG] : afsfuse_create: path "<<server_path<<endl;
         // cout<<"[DEBUG] : afsfuse_create: flag "<<req->flags()<<endl;
@@ -440,7 +466,7 @@ class AfsServiceImpl final : public AFS::Service {
     Status afsfuse_putFile(ServerContext* context,
                            ServerReader<FileContent>* reader,
                            OutputInfo* reply) override {
-        // printf("%s : Begin\n", __func__);
+        // printf("%s : Begin\n", __func__);        	
         string final_path, temp_path;
         FileContent contentPart;
         SequentialFileWriter writer;
@@ -450,9 +476,19 @@ class AfsServiceImpl final : public AFS::Service {
             try {
                 if (final_path.empty()) {
                     final_path = (rootDir + "/" + contentPart.name());
-                    temp_path = (rootDir + "/" + contentPart.name() + ".tmp" + std::to_string(rand() % 1000));
+                    temp_path = (rootDir + "/" + contentPart.name() + ".tmp" + std::to_string(rand() % 1000));                    
                 }
 
+                if (!doesPathExist(final_path)) {
+                    bool pathCreated = createPath(final_path);
+                    if (pathCreated) {
+                        printf("%s : %s path Creation Success\n", __func__, final_path.c_str());
+                    } else {
+                        printf("%s : %s path Creation Failed\n", __func__, final_path.c_str());
+                        reply->set_err(errno);
+                        return Status::OK;
+                    }
+                }
                 writer.OpenIfNecessary(temp_path);
                 auto* const data = contentPart.mutable_content();
                 // std::cout << "Received data : " << *data << std::endl;
