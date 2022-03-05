@@ -24,8 +24,8 @@ enum DebugLevel { LevelInfo = 0, LevelError = 1, LevelNone = 2 };
 
 const DebugLevel debugMode = LevelError;
 
-// const int stalenessLimit = 30;  // in seconds
-const unsigned long parallel_close_file_size_thresh = 16777216;  // 16 Megabytes
+const unsigned long parallel_close_file_size_thresh = 
+    16777216;  // should be set in bytes, currently 16 Megabytes
 const bool enableTempFileWrites =
     true;  // whether to enable creation of temporary files while writing
 
@@ -64,7 +64,10 @@ struct BoundedBuffer {
 
     void consumer();
 
-    void cleanupBuffer() { notDone = false; not_empty.notify_one(); }
+    void cleanupBuffer() {
+        notDone = false;
+        not_empty.notify_one();
+    }
 };
 
 thread *close_thread;
@@ -74,7 +77,7 @@ inline void get_time(struct timespec *ts);
 inline double get_time_diff(struct timespec *before, struct timespec *after);
 void printFileTimeFields(const char *func, int fd);
 void printFileTimeFields(const char *func, const char *path);
-int cp(const char * to, const char * from);
+int cp(const char *to, const char *from);
 
 class Cache {
     string cachedRoot;
@@ -215,14 +218,15 @@ static int client_open(const char *path, struct fuse_file_info *fi) {
 
     if (enableTempFileWrites) {
         string tempFileName = cache->getCachedPath(path, true, -1);
-        //string copyCommand = "cp " + s_path + " " + tempFileName;
-        int res = cp(tempFileName.c_str(), s_path.c_str());//system(copyCommand.c_str());
-	
-	if (res != 0) {
+        // string copyCommand = "cp " + s_path + " " + tempFileName;
+        int res = cp(tempFileName.c_str(),
+                     s_path.c_str());  // system(copyCommand.c_str());
+
+        if (res != 0) {
             if (debugMode <= DebugLevel::LevelError) {
                 printf("%s \t : Failed to copy file %s!\n", __func__, path);
             }
-	}
+        }
         struct stat st_buf;
         if (lstat(s_path.c_str(), &st_buf) != 0) {
             if (debugMode <= DebugLevel::LevelError) {
@@ -384,7 +388,6 @@ static int client_rmdir(const char *path) {
     if (debugMode <= DebugLevel::LevelInfo) {
         printf("%s \t : Path = %s\n", __func__, path);
     }
-    // TODO change order of mkdir calls after mirroring
     int res = options.afsclient->rpc_rmdir(path);
 
     if (res == 0) {
@@ -517,7 +520,7 @@ static int client_rename(const char *from, const char *to, unsigned int flags) {
 
 static int client_utimens(const char *path, const struct timespec ts[2],
                           struct fuse_file_info *fi) {
-    if (true || debugMode <= DebugLevel::LevelInfo) {
+    if (debugMode <= DebugLevel::LevelInfo) {
         printf("%s \t: Path = %s\n", __func__, path);
     }
 
@@ -528,7 +531,8 @@ static int client_utimens(const char *path, const struct timespec ts[2],
     };
 
     int res = 0;
-
+    // For regular file, utimensat should not be called as
+    // anyways on close it is changed
     if (!is_regular_file(cache->getCachedPath(path).c_str())) {
         res = options.afsclient->rpc_utimens(path, ts, fi);
     }
@@ -543,9 +547,7 @@ static int client_utimens(const char *path, const struct timespec ts[2],
         }
     }
 
-    return res;  // options.afsclient->rpc_utimens(path, ts, fi);
-    // Removed rpc calls in the general casesince utimens should be called on
-    // temporary file.
+    return res;
 }
 
 static int client_mknod(const char *path, mode_t mode, dev_t rdev) {
@@ -572,7 +574,7 @@ static int client_mknod(const char *path, mode_t mode, dev_t rdev) {
     return res;
 }
 
-bool isFileModified(const char * path, struct fuse_file_info * fi) {
+bool isFileModified(const char *path, struct fuse_file_info *fi) {
     bool isModified = true;
     struct stat server_buf;
 
@@ -689,34 +691,33 @@ void closeOnServer(const char *path) {
 
     int res =
         options.afsclient->rpc_putFile(cache->getCachedPath("").c_str(), path);
-    
+
     if (true || debugMode <= DebugLevel::LevelInfo) {
         get_time(&ts_send_end);
     }
-    
+
     if ((res < 0) && (debugMode <= DebugLevel::LevelError)) {
         printf("%s \t: File failed to send to server.\n", __func__);
     }
-    
+
     if (true || debugMode <= DebugLevel::LevelInfo) {
         printf(
-            "%s : \t *******Time to send (ms)******** = %f \t size (bytes) = "
-            "%lu \n",
+            "%s : \t Time to send (ms) = %f \t size (bytes) = "
+            "%lu, path = %s\n",
             __func__, get_time_diff(&ts_send_start, &ts_send_end),
-            getFileSize(path));
+            getFileSize(path), path);
     }
-    
+
     if (debugMode <= DebugLevel::LevelInfo) {
         printf("%s \t: Hopefully file is sent to server.\n", __func__);
     }
 }
 
 static int client_release(const char *path, struct fuse_file_info *fi) {
-
     string s_path(cache->getCachedPath(path));
 
     struct timespec ts_close_start, ts_close_end;
-    if (true || debugMode <= DebugLevel::LevelInfo) {
+    if (debugMode <= DebugLevel::LevelInfo) {
         get_time(&ts_close_start);
     }
 
@@ -744,7 +745,7 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
     if (needToSend) {
         fsync(fi->fh);
     }
-    
+
     int tempFd = -1;
     string tempFileName;
     bool isTempFile = cache->isTempFile(fi->fh);
@@ -759,7 +760,7 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
     if (res != -1 && enableTempFileWrites && isTempFile) {
         int tempRes =
             rename(tempFileName.c_str(), cache->getCachedPath(path).c_str());
-	if (tempRes != -1) {
+        if (tempRes != -1) {
             if (debugMode <= DebugLevel::LevelInfo) {
                 printf("%s \t: Renamed from %s to %s.\n", __func__,
                        tempFileName.c_str(),
@@ -800,7 +801,7 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
         }
     }
 
-    if (true || debugMode <= DebugLevel::LevelInfo) {
+    if (debugMode <= DebugLevel::LevelInfo) {
         get_time(&ts_close_end);
         printf("%s \t : Diff (ms) = %f \t size (bytes) = %lu \n", __func__,
                get_time_diff(&ts_close_start, &ts_close_end),
@@ -848,6 +849,13 @@ int main(int argc, char *argv[]) {
     cin.tie(nullptr);
     cout.tie(nullptr);
 
+    string cachedFolderName = ".cached";
+    string rootDir = getCurrentWorkingDir();
+    string clientFolderPath = rootDir + "/client";
+
+    string unmountCommand = "umount -f -l " + clientFolderPath;
+    int result = system(unmountCommand.c_str());
+
     if (debugMode <= DebugLevel::LevelInfo) {
         printf("%s \t: %s\n", __func__, argv[0]);
     }
@@ -883,16 +891,11 @@ int main(int argc, char *argv[]) {
         args.argv[0] = (char *)"";
     }
 
-    string cachedFolderName = ".cached";
-    string rootDir = getCurrentWorkingDir();
-
     struct stat buffer;
     if (debugMode <= DebugLevel::LevelInfo) {
         printf("%s \t: CurrentWorkingDir = %s\n", __func__, rootDir.c_str());
     }
     cache = new Cache(rootDir, cachedFolderName);
-
-    string clientFolderPath = rootDir + "/client";
 
     if (stat(clientFolderPath.c_str(), &buffer) == 0) {
         if (debugMode <= DebugLevel::LevelInfo) {
@@ -920,15 +923,13 @@ int main(int argc, char *argv[]) {
 void BoundedBuffer::consumer() {
     while (notDone) {
         string path = fetch();
-	if (notDone) {
+        if (notDone) {
             closeOnServer(path.c_str());
-	}
+        }
     }
 }
 
-void BoundedBuffer::submitRequest(string path) {
-    deposit(path);
-}
+void BoundedBuffer::submitRequest(string path) { deposit(path); }
 
 inline void get_time(struct timespec *ts) {
     clock_gettime(CLOCK_MONOTONIC, ts);
@@ -1019,11 +1020,10 @@ string BoundedBuffer::fetch() {
     return path;
 }
 
-
 Cache::Cache(string currentWorkDir, string cachedFolderName) {
     if (debugMode <= DebugLevel::LevelInfo) {
         printf("%s \t: Current Working Dir : %s\n", __func__,
-                currentWorkDir.c_str());
+               currentWorkDir.c_str());
     }
     cachedRoot = currentWorkDir + "/" + cachedFolderName;
     makeCacheFolder();
@@ -1033,21 +1033,20 @@ void Cache::makeCacheFolder() {
     struct stat buffer;
     if (stat(cachedRoot.c_str(), &buffer) == 0) {
         if (debugMode <= DebugLevel::LevelInfo) {
-            printf("%s \t: Cached folder already exists. Path = %s\n",
-                    __func__, cachedRoot.c_str());
+            printf("%s \t: Cached folder already exists. Path = %s\n", __func__,
+                   cachedRoot.c_str());
         }
     } else {
         int status = mkdir(cachedRoot.c_str(), 0777);
 
         if (status != 0) {
             if (debugMode <= DebugLevel::LevelError) {
-                printf("%s \t: Failed to create cached directory!\n",
-                        __func__);
+                printf("%s \t: Failed to create cached directory!\n", __func__);
             }
         } else {
             if (debugMode <= DebugLevel::LevelInfo) {
                 printf("%s \t: Successfully created cached directory.\n",
-                        __func__);
+                       __func__);
             }
         }
     }
@@ -1056,17 +1055,17 @@ void Cache::makeCacheFolder() {
 string Cache::getCachedPath(const char *path, bool tempPath, int fd) {
     if (debugMode <= DebugLevel::LevelInfo) {
         printf("%s \t: Requested for %s , Returned %s \n", __func__, path,
-                (cachedRoot + string(path)).c_str());
+               (cachedRoot + string(path)).c_str());
     }
     if (enableTempFileWrites && tempPath == true) {
         if (debugMode <= DebugLevel::LevelInfo) {
-            printf("%s \t: Requested for %s , Returned %s \n", __func__,
-                    path, (cachedRoot + string(path)).c_str());
+            printf("%s \t: Requested for %s , Returned %s \n", __func__, path,
+                   (cachedRoot + string(path)).c_str());
         }
         string tempFileName;
         if (fd == -1) {
             tempFileName = cachedRoot + string(path) + ".temp." +
-                            std::to_string(rand() % 10000);
+                           std::to_string(rand() % 10000);
         } else {
             auto it = tempFdToPathMap.find(fd);
             if (it == tempFdToPathMap.end()) {
@@ -1101,40 +1100,15 @@ void Cache::correctStaleness(const char *path, struct stat *buffer) {
 
     if (buffer->st_mtim.tv_sec != lastModifiedTime.tv_sec) {
         printf("%s \t: File is pretty old. Let's refresh it.\n", __func__);
-        int res =
-            options.afsclient->rpc_getattr(path, &remoteFileStatBuffer);
+        int res = options.afsclient->rpc_getattr(path, &remoteFileStatBuffer);
         if (res == -1) {
             return;
         }
 
-        if (remoteFileStatBuffer.st_mtim.tv_sec - buffer->st_mtim.tv_sec !=
-            0) {
+        if (remoteFileStatBuffer.st_mtim.tv_sec - buffer->st_mtim.tv_sec != 0) {
             fetchFile(path);
         }
     }
-    // struct timespec currentTime;
-    // clock_gettime(CLOCK_REALTIME, &currentTime);
-
-    // if ((currentTime.tv_sec - buffer->st_mtim.tv_sec) > stalenessLimit) {
-    //     printf("%s \t: Diff in time = %ld\n",
-    //                __func__, currentTime.tv_sec -
-    //                buffer->st_mtim.tv_sec);
-    //     if (debugMode <= DebugLevel::LevelInfo) {
-    //         printf("%s \t: File is pretty old. Let's refresh it.\n",
-    //                __func__);
-    //     }
-    //     struct stat remoteFileStatBuffer;
-    //     int res =
-    //         options.afsclient->rpc_getattr(path, &remoteFileStatBuffer);
-    //     if (res == -1) {
-    //         return;
-    //     }
-
-    //     if (remoteFileStatBuffer.st_mtim.tv_sec - buffer->st_mtim.tv_sec
-    //     != 0) {
-    //         fetchFile(path);
-    //     }
-    // }
 }
 
 bool Cache::isCached(const char *path) {
@@ -1143,13 +1117,15 @@ bool Cache::isCached(const char *path) {
     if (stat(s_path.c_str(), &buffer) != 0) {
         if (debugMode <= DebugLevel::LevelInfo) {
             printf("%s \t: File = %s, Cached = false\n", __func__,
-                    s_path.c_str());
+                   s_path.c_str());
         }
         return false;
     }
     if (debugMode <= DebugLevel::LevelInfo) {
-        printf("%s \t: File = %s, Cached = true\n", __func__,
-                s_path.c_str());
+        printf("%s \t: File = %s, Cached = true\n", __func__, s_path.c_str());
+    }
+    if (S_ISDIR(buffer.st_mode)) {
+        return true;
     }
     correctStaleness(path, &buffer);
     return true;
@@ -1176,19 +1152,17 @@ void Cache::mirrorDirectoryStructure(const char *path) {
         string tempPath = cachedRoot + s_path.substr(0, pos);
         if (debugMode <= DebugLevel::LevelInfo) {
             printf("%s \t: Directory in .cached - %s\n", __func__,
-                    tempPath.c_str());
+                   tempPath.c_str());
         }
         if (stat(tempPath.c_str(), &buffer) != 0) {
             int res = mkdir(tempPath.c_str(), 0777);
             if (res == -1) {
                 if (debugMode <= DebugLevel::LevelError) {
-                    printf("%s \t: Failed creating new folder!\n",
-                            __func__);
+                    printf("%s \t: Failed creating new folder!\n", __func__);
                 }
             } else {
                 if (debugMode <= DebugLevel::LevelInfo) {
-                    printf("%s \t: Created folder successfully!\n",
-                            __func__);
+                    printf("%s \t: Created folder successfully!\n", __func__);
                 }
             }
         } else {
@@ -1209,12 +1183,12 @@ void Cache::fetchFile(const char *path) {
     if (stat((getCachedPath(path)).c_str(), &buffer) == 0) {
         if (debugMode <= DebugLevel::LevelInfo) {
             printf("%s \t: Cached file %s successfully\n", __func__,
-                    (getCachedPath(path)).c_str());
+                   (getCachedPath(path)).c_str());
         }
     } else {
         if (debugMode <= DebugLevel::LevelInfo) {
             printf("%s \t: Failed to cache file %s\n", __func__,
-                    (getCachedPath(path)).c_str());
+                   (getCachedPath(path)).c_str());
         }
         if (debugMode <= DebugLevel::LevelError) {
             printf("%s \t : %s\n", __func__, path);
@@ -1242,7 +1216,7 @@ void Cache::fetchFile(const char *path) {
     }
     if (res == -1 && debugMode <= DebugLevel::LevelError) {
         printf("%s \t: Failed to set the atime and mtime of %s file.\n",
-                __func__, (getCachedPath(path)).c_str());
+               __func__, (getCachedPath(path)).c_str());
         printf("%s \t : %s\n", __func__, path);
         perror(strerror(errno));
     }
@@ -1254,60 +1228,49 @@ void Cache::cacheFile(const char *path) {
     fetchFile(path);
 }
 
-int cp(const char *to, const char *from)
-{
+int cp(const char *to, const char *from) {
     int fd_to, fd_from;
     char buf[131072];
     ssize_t nread;
     int saved_errno;
 
     fd_from = open(from, O_RDONLY);
-    if (fd_from < 0)
-        return -1;
+    if (fd_from < 0) return -1;
 
     fd_to = open(to, O_WRONLY | O_CREAT | O_EXCL, 0666);
-    if (fd_to < 0)
-        goto out_error;
+    if (fd_to < 0) goto out_error;
 
-    while (nread = read(fd_from, buf, sizeof buf), nread > 0)
-    {
+    while (nread = read(fd_from, buf, sizeof buf), nread > 0) {
         char *out_ptr = buf;
         ssize_t nwritten;
 
         do {
             nwritten = write(fd_to, out_ptr, nread);
 
-            if (nwritten >= 0)
-            {
+            if (nwritten >= 0) {
                 nread -= nwritten;
                 out_ptr += nwritten;
-            }
-            else if (errno != EINTR)
-            {
+            } else if (errno != EINTR) {
                 goto out_error;
             }
         } while (nread > 0);
     }
 
-    if (nread == 0)
-    {
-        if (close(fd_to) < 0)
-        {
+    if (nread == 0) {
+        if (close(fd_to) < 0) {
             fd_to = -1;
             goto out_error;
         }
         close(fd_from);
 
-        /* Success! */
         return 0;
     }
 
-  out_error:
+out_error:
     saved_errno = errno;
 
     close(fd_from);
-    if (fd_to >= 0)
-        close(fd_to);
+    if (fd_to >= 0) close(fd_to);
 
     errno = saved_errno;
     return -1;

@@ -590,7 +590,7 @@ class AfsClient {
             // Set timeout for API
             std::chrono::system_clock::time_point deadline =
                 std::chrono::system_clock::now() +
-                std::chrono::seconds(60);
+                std::chrono::seconds(300);
 
             context.set_wait_for_ready(true);
             context.set_deadline(deadline);
@@ -647,7 +647,7 @@ class AfsClient {
             // Set timeout for API
             std::chrono::system_clock::time_point deadline =
                 std::chrono::system_clock::now() +
-                std::chrono::seconds(60);
+                std::chrono::seconds(300);
 
             context.set_wait_for_ready(true);
             context.set_deadline(deadline);
