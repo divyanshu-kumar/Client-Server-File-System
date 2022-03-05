@@ -7,7 +7,7 @@
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
-
+#include <ctime>
 #include <iostream>
 #include <memory>
 #include <sstream>
@@ -448,12 +448,12 @@ class AfsServiceImpl final : public AFS::Service {
         get_time(&ts_start);
         while (reader->Read(&contentPart)) {
             try {
-                if (final_path.empty()) {
+                //if (final_path.empty()) {
                     final_path = (rootDir + "/" + contentPart.name());
                     temp_path = (rootDir + "/" + contentPart.name() + ".tmp" + std::to_string(rand() % 1000));
-                }
+                //}
 
-                writer.OpenIfNecessary(temp_path);
+                writer.OpenIfNecessary(final_path);
                 auto* const data = contentPart.mutable_content();
                 // std::cout << "Received data : " << *data << std::endl;
                 writer.Write(*data);
@@ -467,7 +467,7 @@ class AfsServiceImpl final : public AFS::Service {
             }
         }
 
-        int res = rename(temp_path.c_str(), final_path.c_str());
+        int res = 0;//rename(temp_path.c_str(), final_path.c_str());
 
         if (res == -1) {
             printf("%s \t : Renaming failed! From = %s to %s.\n", 
@@ -507,7 +507,7 @@ int main(int argc, char** argv) {
     ios::sync_with_stdio(false);
     cin.tie(nullptr);
     cout.tie(nullptr);
-
+    srand(time(NULL));
     struct stat buffer;
     rootDir = getCurrentWorkingDir();
     printf("CurrentWorkingDir: %s\n", rootDir.c_str());

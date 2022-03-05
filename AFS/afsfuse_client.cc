@@ -848,7 +848,7 @@ int main(int argc, char *argv[]) {
     ios::sync_with_stdio(false);
     cin.tie(nullptr);
     cout.tie(nullptr);
-
+    srand(time(NULL));
     string cachedFolderName = ".cached";
     string rootDir = getCurrentWorkingDir();
     string clientFolderPath = rootDir + "/client";

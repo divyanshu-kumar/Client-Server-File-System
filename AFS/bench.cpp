@@ -57,9 +57,21 @@ int getFileSize(int i) {
 
 const string cacheDirectory = "./.cached/";
 const string mountDirectory = "./client/";
+const int max_File_Size = file_sizes.size();
+
+vector<vector<const char *>> data_c_str(max_File_Size);
+vector<vector<string>> data(max_File_Size);
+void fillData() {
+      for (int i = 0; i < max_File_Size; i++) {
+          int file_size = getFileSize(i);
+          getRandomText(data[i], file_size);
+          for (auto &s : data[i]) {
+              data_c_str[i].emplace_back(s.c_str()    );
+          }
+      }
+}
 
 void benchmarkApplication(string userId, vector<struct time_statistics> &ts) {
-    int max_File_Size = file_sizes.size();
     ts = vector<struct time_statistics>(max_File_Size);
 
     struct stat buf;
@@ -77,18 +89,8 @@ void benchmarkApplication(string userId, vector<struct time_statistics> &ts) {
         }
     }
 
-    vector<vector<const char *>> data_c_str(max_File_Size);
-    vector<vector<string>> data(max_File_Size);
-    for (int i = 0; i < max_File_Size; i++) {
-        int file_size = getFileSize(i);
-        getRandomText(data[i], file_size);
-        for (auto &s : data[i]) {
-            data_c_str[i].emplace_back(s.c_str());
-        }
-    }
-            
     for (int run = 0; run < num_runs; run++) {
-        msleep(rand()%100);
+        msleep(rand()%10);
         printf("%s : Create, write test..\n", userId.c_str());
         for (int i = 0; i < max_File_Size; i++) {
             int file_size = getFileSize(i);
@@ -158,9 +160,12 @@ void benchmarkApplication(string userId, vector<struct time_statistics> &ts) {
                 printf("Failed to delete the file %s.\n", fileName.c_str());
             }
         }
+
+        msleep(500 + (rand()%500));
+
         printf("%s : Cold Open, Read test..\n", userId.c_str());
         for (int i = 0; i < max_File_Size; i++) {
-            msleep(rand()%100);
+            msleep(rand()%10);
             int file_size = getFileSize(i);
 
             string fileName =
@@ -222,6 +227,7 @@ void benchmarkApplication(string userId, vector<struct time_statistics> &ts) {
                     get_time_diff(&ts_close_start, &ts_close_end));
             }
         }
+	msleep(500 + (rand()%500));
         printf("%s : Warm Open, Close test..\n", userId.c_str());
         for (int i = 0; i < max_File_Size; i++) {
             msleep(rand()%100);
@@ -271,9 +277,9 @@ void benchmarkApplication(string userId, vector<struct time_statistics> &ts) {
                 ts[i].unlink_time = min(ts[i].unlink_time, get_time_diff(&ts_unlink_start, &ts_unlink_end));
             }
         }
-        msleep(rand()%100);
+        msleep(500 + (rand()%500));
     }
-    msleep(500);
+    msleep(500 + (rand()%500));
     clearDirectory(cachedFolder.c_str());
 }
 
@@ -294,7 +300,7 @@ int main(int argc, char *argv[]) {
             }
         }
     }
-
+    fillData();
     vector<std::thread> threadPool;
     vector<vector<struct time_statistics>> stats(numProcesses);
 

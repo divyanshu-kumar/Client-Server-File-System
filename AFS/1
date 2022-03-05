@@ -11,9 +11,9 @@
 #include "sequential_file_writer.h"
 #include "utils.h"
 
-#define MAX_NUM_RETRIES (12)
-#define INITIAL_BACKOFF_MS (50)
-#define MULTIPLIER (1.5)
+#define MAX_NUM_RETRIES (7)
+#define INITIAL_BACKOFF_MS (100)
+#define MULTIPLIER (2)
 
 using grpc::Channel;
 using grpc::ClientContext;
