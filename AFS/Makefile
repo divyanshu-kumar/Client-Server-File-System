@@ -1,9 +1,10 @@
-CXX = g++
+CXX = g++ -lstdc++fs
 CPPFLAGS += -O3 -I/usr/local/include -I/users/dkumar27/.local/include -g -pthread `pkg-config fuse3 --cflags --libs`
-CXXFLAGS += -std=c++11
+CXXFLAGS += -std=c++17
 LDFLAGS += -L/users/dkumar27/.local/lib -L/usr/local/lib -g `pkg-config grpc++ grpc fuse3 --cflags --libs`       \
            -Wl,--no-as-needed -lgrpc++_reflection -Wl,--as-needed \
-           -lprotobuf -lpthread -ldl
+           -lprotobuf -lpthread -ldl \
+	   -lstdc++fs
 PROTOC = protoc
 GRPC_CPP_PLUGIN = grpc_cpp_plugin
 GRPC_CPP_PLUGIN_PATH ?= `which $(GRPC_CPP_PLUGIN)`
