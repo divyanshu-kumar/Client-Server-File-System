@@ -9,7 +9,7 @@
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
-
+#include <ctime>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -18,6 +18,7 @@
 
 using namespace std;
 
+const int num_runs = 3;
 const int one_kb = 1024;
 const int one_mb = one_kb * one_kb;
 const vector<int> file_sizes = {
@@ -28,16 +29,21 @@ const vector<int> file_sizes = {
     one_mb,
     one_mb * 5,
     one_mb * 10,
+    one_mb * 25,
     one_mb * 50,
+    one_mb * 75,
     one_mb * 100,
-    one_mb * 200,
-    one_mb * 300
+    // one_mb * 150,
+    // one_mb * 200,
+    // one_mb * 250,
+    // one_mb * 300
 };
 
 struct time_statistics {
     int file_size;
     double create_time, write_time, close_time, first_open_time,
-        cached_open_time, read_time, close_without_write_time;
+        cached_open_time, read_time, close_without_write_time,
+        unlink_time;
 };
 
 void get_time(struct timespec *ts);
@@ -52,15 +58,13 @@ int getFileSize(int i) {
 const string cacheDirectory = "./.cached/";
 const string mountDirectory = "./client/";
 
-void benchmarkApplication(int userId, vector<struct time_statistics> &ts) {
-    bool cleanup = false;
-    
+void benchmarkApplication(string userId, vector<struct time_statistics> &ts) {
     int max_File_Size = file_sizes.size();
     ts = vector<struct time_statistics>(max_File_Size);
 
     struct stat buf;
-
-    string currentUserFolder = mountDirectory + to_string(userId) + "/";
+    string cachedFolder = cacheDirectory + userId + "/";
+    string currentUserFolder = mountDirectory + userId + "/";
 
     if (lstat(currentUserFolder.c_str(), &buf) == 0) {
         clearDirectory(currentUserFolder);
@@ -73,160 +77,203 @@ void benchmarkApplication(int userId, vector<struct time_statistics> &ts) {
         }
     }
 
+    vector<vector<const char *>> data_c_str(max_File_Size);
+    vector<vector<string>> data(max_File_Size);
     for (int i = 0; i < max_File_Size; i++) {
         int file_size = getFileSize(i);
-
-        string fileName =
-            currentUserFolder + "testFile_" + to_string(file_size) + ".txt";
-
-        struct timespec ts_open_start, ts_open_end;
-
-        get_time(&ts_open_start);
-
-        int fd = open(fileName.c_str(), O_CREAT | O_WRONLY);
-
-        get_time(&ts_open_end);
-
-        if (fd == -1) {
-            continue;
-        }
-
-        vector<string> data;
-        getRandomText(data, file_size);
-        vector<const char *> data_c_str;
-
-        for (auto &s : data) {
-            data_c_str.push_back(s.c_str());
-        }
-
-        struct timespec ts_write_start, ts_write_end;
-
-        get_time(&ts_write_start);
-
-        int cur_offset = 0;
-        for (int i = 0; i < data_c_str.size(); i++) {
-            int res = pwrite(fd, data_c_str[i], data[i].size(), cur_offset);
-            cur_offset += data[i].size();
-        }
-
-        get_time(&ts_write_end);
-
-        struct timespec ts_close_start, ts_close_end;
-
-        get_time(&ts_close_start);
-
-        int res = close(fd);
-
-        get_time(&ts_close_end);
-
-        if (res == -1) {
-            printf("Failed to close the file %s.\n", fileName.c_str());
-        }
-
-        ts[i].file_size = file_size;
-        ts[i].create_time = get_time_diff(&ts_open_start, &ts_open_end);
-        ts[i].write_time = get_time_diff(&ts_write_start, &ts_write_end);
-        ts[i].close_time = get_time_diff(&ts_close_start, &ts_close_end);
-    }
-
-    msleep(10000);
-    string cachedFolder = cacheDirectory + to_string(userId) + "/";
-    for (int i = 0; i < max_File_Size; i++) {
-        int file_size = getFileSize(i);
-
-        string fileName =
-            cachedFolder + "testFile_" + to_string(file_size) + ".txt";
-        int res = unlink(fileName.c_str());
-        if (res == -1) {
-            printf("Failed to delete the file %s.\n", fileName.c_str());
+        getRandomText(data[i], file_size);
+        for (auto &s : data[i]) {
+            data_c_str[i].emplace_back(s.c_str());
         }
     }
+            
+    for (int run = 0; run < num_runs; run++) {
+        msleep(rand()%100);
+        printf("%s : Create, write test..\n", userId.c_str());
+        for (int i = 0; i < max_File_Size; i++) {
+            int file_size = getFileSize(i);
 
-    for (int i = 0; i < max_File_Size; i++) {
-        int file_size = getFileSize(i);
+            string fileName =
+                currentUserFolder + "testFile_" + to_string(file_size) + ".txt";
 
-        string fileName =
-            currentUserFolder + "testFile_" + to_string(file_size) + ".txt";
+            struct timespec ts_open_start, ts_open_end;
 
-        struct timespec ts_open_start, ts_open_end;
+            get_time(&ts_open_start);
 
-        get_time(&ts_open_start);
+            int fd = open(fileName.c_str(), O_CREAT | O_WRONLY);
 
-        int fd = open(fileName.c_str(), O_RDONLY);
+            get_time(&ts_open_end);
 
-        get_time(&ts_open_end);
+            if (fd == -1) {
+                continue;
+            }
 
-        if (fd == -1) {
-            continue;
+            msleep(rand()%10);
+            struct timespec ts_write_start, ts_write_end;
+
+            get_time(&ts_write_start);
+
+            int cur_offset = 0;
+            for (int chunk = 0; chunk < data_c_str[i].size(); chunk++) {
+                int res = pwrite(fd, data_c_str[i][chunk], data[i][chunk].size(), cur_offset);
+                cur_offset += data[i][chunk].size();
+            }
+
+            get_time(&ts_write_end);
+
+            struct timespec ts_close_start, ts_close_end;
+
+            get_time(&ts_close_start);
+
+            int res = close(fd);
+
+            get_time(&ts_close_end);
+
+            if (res == -1) {
+                printf("Failed to close the file %s.\n", fileName.c_str());
+            }
+
+            ts[i].file_size = file_size;
+            if (run == 0) {
+                ts[i].create_time = get_time_diff(&ts_open_start, &ts_open_end);
+                ts[i].write_time = get_time_diff(&ts_write_start, &ts_write_end);
+                ts[i].close_time = get_time_diff(&ts_close_start, &ts_close_end);
+            }
+            else {
+                ts[i].create_time = min(ts[i].create_time, get_time_diff(&ts_open_start, &ts_open_end));
+                ts[i].write_time = min(ts[i].write_time, get_time_diff(&ts_write_start, &ts_write_end));
+                ts[i].close_time = min(ts[i].close_time, get_time_diff(&ts_close_start, &ts_close_end));
+            }
         }
 
-        int cur_offset = 0;
-        int num_bytes_read = 0;
-        const int buf_size = 131072;  // 1 MB
-        char buf[buf_size + 1];
+        msleep(500 + (rand()%500));
+        
+        for (int i = 0; i < max_File_Size; i++) {
+            int file_size = getFileSize(i);
 
-        struct timespec ts_read_start, ts_read_end;
-
-        get_time(&ts_read_start);
-
-        while (num_bytes_read < file_size) {
-            int res = pread(fd, buf, buf_size, cur_offset);
-            cur_offset += res;
-            num_bytes_read += res;
+            string fileName =
+                cachedFolder + "testFile_" + to_string(file_size) + ".txt";
+            int res = unlink(fileName.c_str());
+            if (res == -1) {
+                printf("Failed to delete the file %s.\n", fileName.c_str());
+            }
         }
+        printf("%s : Cold Open, Read test..\n", userId.c_str());
+        for (int i = 0; i < max_File_Size; i++) {
+            msleep(rand()%100);
+            int file_size = getFileSize(i);
 
-        get_time(&ts_read_end);
+            string fileName =
+                currentUserFolder + "testFile_" + to_string(file_size) + ".txt";
 
-        struct timespec ts_close_start, ts_close_end;
+            struct timespec ts_open_start, ts_open_end;
 
-        get_time(&ts_close_start);
+            get_time(&ts_open_start);
 
-        int res = close(fd);
+            int fd = open(fileName.c_str(), O_RDONLY);
 
-        get_time(&ts_close_end);
+            get_time(&ts_open_end);
 
-        if (res == -1) {
-            printf("Failed to close file %s\n", fileName.c_str());
+            if (fd == -1) {
+                continue;
+            }
+
+            int cur_offset = 0;
+            int num_bytes_read = 0;
+            const int buf_size = 131072;  // 1 MB
+            char buf[buf_size + 1];
+
+            struct timespec ts_read_start, ts_read_end;
+
+            get_time(&ts_read_start);
+
+            while (num_bytes_read < file_size) {
+                int res = pread(fd, buf, buf_size, cur_offset);
+                cur_offset += res;
+                num_bytes_read += res;
+            }
+
+            get_time(&ts_read_end);
+
+            struct timespec ts_close_start, ts_close_end;
+
+            get_time(&ts_close_start);
+
+            int res = close(fd);
+
+            get_time(&ts_close_end);
+
+            if (res == -1) {
+                printf("Failed to close file %s\n", fileName.c_str());
+            }
+
+            msleep(rand()%100);
+
+            if (run == 0) {
+                ts[i].first_open_time = get_time_diff(&ts_open_start, &ts_open_end);
+                ts[i].read_time = get_time_diff(&ts_read_start, &ts_read_end);
+                ts[i].close_without_write_time =
+                    get_time_diff(&ts_close_start, &ts_close_end);
+            }
+            else {
+                ts[i].first_open_time = min(ts[i].first_open_time, get_time_diff(&ts_open_start, &ts_open_end));
+                ts[i].read_time = min(ts[i].read_time, get_time_diff(&ts_read_start, &ts_read_end));
+                ts[i].close_without_write_time = min(ts[i].close_without_write_time,
+                    get_time_diff(&ts_close_start, &ts_close_end));
+            }
         }
+        printf("%s : Warm Open, Close test..\n", userId.c_str());
+        for (int i = 0; i < max_File_Size; i++) {
+            msleep(rand()%100);
+            int file_size = getFileSize(i);
 
-        msleep(100);
+            string fileName =
+                currentUserFolder + "testFile_" + to_string(file_size) + ".txt";
 
-        ts[i].first_open_time = get_time_diff(&ts_open_start, &ts_open_end);
-        ts[i].read_time = get_time_diff(&ts_read_start, &ts_read_end);
-        ts[i].close_without_write_time =
-            get_time_diff(&ts_close_start, &ts_close_end);
+            struct timespec ts_open_start, ts_open_end;
+
+            get_time(&ts_open_start);
+
+            int fd = open(fileName.c_str(), O_RDONLY);
+
+            get_time(&ts_open_end);
+
+            if (fd == -1) {
+                continue;
+            }
+
+            int res = close(fd);
+
+            if (res == -1) {
+                printf("Failed to close file %s\n", fileName.c_str());
+            }
+
+            msleep(rand()%100);
+
+            struct timespec ts_unlink_start, ts_unlink_end;
+
+            get_time(&ts_unlink_start);
+
+            res = unlink(fileName.c_str());
+
+            get_time(&ts_unlink_end);
+
+            if (res == -1) {
+                printf("Failed to delete file %s.\n", fileName.c_str());
+            }
+
+            if (run == 0) {
+                ts[i].cached_open_time = get_time_diff(&ts_open_start, &ts_open_end);
+                ts[i].unlink_time = get_time_diff(&ts_unlink_start, &ts_unlink_end);
+            }
+            else {
+                ts[i].cached_open_time = min(ts[i].cached_open_time, get_time_diff(&ts_open_start, &ts_open_end));
+                ts[i].unlink_time = min(ts[i].unlink_time, get_time_diff(&ts_unlink_start, &ts_unlink_end));
+            }
+        }
+        msleep(rand()%100);
     }
-
-    for (int i = 0; i < max_File_Size; i++) {
-        int file_size = getFileSize(i);
-
-        string fileName =
-            currentUserFolder + "testFile_" + to_string(file_size) + ".txt";
-
-        struct timespec ts_open_start, ts_open_end;
-
-        get_time(&ts_open_start);
-
-        int fd = open(fileName.c_str(), O_RDONLY);
-
-        get_time(&ts_open_end);
-
-        if (fd == -1) {
-            continue;
-        }
-
-        int res = close(fd);
-
-        if (res == -1) {
-            printf("Failed to close file %s\n", fileName.c_str());
-        }
-
-        msleep(100);
-
-        ts[i].cached_open_time = get_time_diff(&ts_open_start, &ts_open_end);
-    }
-
-    msleep(5000);
+    msleep(500);
     clearDirectory(cachedFolder.c_str());
 }
 
@@ -234,6 +281,7 @@ int main(int argc, char *argv[]) {
     ios::sync_with_stdio(false);
     cin.tie(nullptr);
     cout.tie(nullptr);
+    srand(time(NULL));
 
     int numProcesses = 1;
     if (argc > 1) {
@@ -250,9 +298,13 @@ int main(int argc, char *argv[]) {
     vector<std::thread> threadPool;
     vector<vector<struct time_statistics>> stats(numProcesses);
 
+    vector<string> userIds(numProcesses);
+    for (int i = 0; i < userIds.size(); i++) {
+        userIds[i] = to_string(i) + "_" + to_string(rand() % 1000);
+    }
     for (int i = 0; i < numProcesses; i++) {
         threadPool.push_back(
-            std::thread(&benchmarkApplication, i, std::ref(stats[i])));
+            std::thread(&benchmarkApplication, userIds[i], std::ref(stats[i])));
         printf("Starting thread with id = %d.\n", i);
     }
 
@@ -265,9 +317,9 @@ int main(int argc, char *argv[]) {
         printf("*****Proc id = %d******\n", i);
         for (int j = 0; j < stats[i].size(); j++) {
             printf(
-                "Create = %.2f \t Write = %.2f \t Close = %.2f \t "
-                "First Open = %.2f \t Cached Open = %.2f \t Read = %.2f \t"
-                "Read Close = %.2f \t File Size = %d\n",
+                "Create = %-8.2f \t Write = %-8.2f \t Close = %-8.2f \t "
+                "First Open = %-8.2f \t Cached Open = %-8.2f \t Read = %-8.2f \t"
+                "Read Close = %-8.2f \t File Size = %-10d\n",
                 stats[i][j].create_time, stats[i][j].write_time,
                 stats[i][j].close_time, stats[i][j].first_open_time,
                 stats[i][j].cached_open_time, stats[i][j].read_time,
