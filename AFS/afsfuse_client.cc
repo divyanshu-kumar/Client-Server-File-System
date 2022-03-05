@@ -28,6 +28,8 @@ const unsigned long parallel_close_file_size_thresh =
     167772160;  // should be set in bytes, currently 16 Megabytes
 const bool enableTempFileWrites =
     true;  // whether to enable creation of temporary files while writing
+const bool shouldClearCacheOnExit = 
+    false;
 
 static struct options {
     AfsClient *afsclient;
@@ -142,17 +144,19 @@ static void client_destroy(void *privateData) {
     }
     closeBuffer->cleanupBuffer();
     close_thread->join();
-    string command = "rm -rf " + cache->getCachedPath("");
-    int res = system(command.c_str());
-    if (res == 0) {
-        if (debugMode <= DebugLevel::LevelInfo) {
-            printf("%s \t: Successfully cleared cache!\n", __func__);
-        }
-    } else {
-        if (debugMode <= DebugLevel::LevelError) {
-            printf("%s \t: Not able to clear cache!\n", __func__);
-            printf("%s \t : \n", __func__);
-            perror(strerror(errno));
+    if (shouldClearCacheOnExit) {
+        string command = "rm -rf " + cache->getCachedPath("");
+        int res = system(command.c_str());
+        if (res == 0) {
+            if (debugMode <= DebugLevel::LevelInfo) {
+                printf("%s \t: Successfully cleared cache!\n", __func__);
+            }
+        } else {
+            if (debugMode <= DebugLevel::LevelError) {
+                printf("%s \t: Not able to clear cache!\n", __func__);
+                printf("%s \t : \n", __func__);
+                perror(strerror(errno));
+            }
         }
     }
     delete cache;
@@ -218,9 +222,8 @@ static int client_open(const char *path, struct fuse_file_info *fi) {
 
     if (enableTempFileWrites) {
         string tempFileName = cache->getCachedPath(path, true, -1);
-        // string copyCommand = "cp " + s_path + " " + tempFileName;
         int res = cp(tempFileName.c_str(),
-                     s_path.c_str());  // system(copyCommand.c_str());
+                     s_path.c_str());
 
         if (res != 0) {
             if (debugMode <= DebugLevel::LevelError) {
@@ -232,6 +235,7 @@ static int client_open(const char *path, struct fuse_file_info *fi) {
                 }
             }
         }
+
         struct stat st_buf;
         if (lstat(s_path.c_str(), &st_buf) != 0) {
             if (debugMode <= DebugLevel::LevelError) {
@@ -285,7 +289,7 @@ static int client_read(const char *path, char *buf, size_t size, off_t offset,
     }
     if (fd == -1) {
         if (debugMode <= DebugLevel::LevelError) {
-            printf("%s \t: Filed opened failed in read, file = %s\n", __func__,
+            printf("%s \t: File opened failed in read, file = %s\n", __func__,
                    cache->getCachedPath(path).c_str());
             printf("%s \t : %s\n", __func__, path);
             perror(strerror(errno));
@@ -816,6 +820,16 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
     return res;
 }
 
+static int client_fsync(const char *path, int isdatasync, struct fuse_file_info *fi) {
+    if (true || debugMode <= DebugLevel::LevelInfo) {
+        printf("%s \t : Path = %s \n", __func__, path);
+    }
+    if (isdatasync != 0) {
+        return fdatasync(fi->fh);
+    }
+    return fsync(fi->fh);
+}
+
 static struct client_operations : fuse_operations {
     client_operations() {
         init = client_init;
@@ -834,6 +848,7 @@ static struct client_operations : fuse_operations {
         mknod = client_mknod;
         flush = client_flush;
         release = client_release;
+        fsync = client_fsync;
     }
 
 } client_oper;
