@@ -222,20 +222,21 @@ class Cache {
     }
 
     string createRecoveryPath(int fd) {
-        string recovery_path = getRecoveryCachedPath(fd);
-        printf("%s\t : Recovery Path: %s\n", __func__, recovery_path.c_str());
-        string command = "touch " + recovery_path;
-        int res = system(command.c_str());
+        string tempPath = getCachedPath("", true, fd);
+        string recoveryPath = tempPath + ".recover";
+        printf("%s\t : Recovery Path: %s\n", __func__, recoveryPath.c_str());
+        int res = rename(tempPath.c_str(), recoveryPath.c_str());
+        
         if (res == -1) {
             if (debugMode <= DebugLevel::LevelError) {
-                printf("%s \t: Recovery Path: %s Creation Failed\n", __func__, recovery_path.c_str());
+                printf("%s \t: Renaming %s to %s Failed\n", __func__, tempPath.c_str(), recoveryPath.c_str());
             }
         } else {
             if (debugMode <= DebugLevel::LevelInfo) {
-                printf("%s \t: Recovery Path: %s Creation Success\n", __func__, recovery_path.c_str());
+                printf("%s \t: Renaming %s to %s Success\n", __func__, tempPath.c_str(), recoveryPath.c_str());
             }
         }
-        return recovery_path;
+        return recoveryPath;
     }
 
     void removePath(string path) {
@@ -359,6 +360,7 @@ class Cache {
                 printf("%s \t: Failed to rename from %s to %s.\n", __func__,
                    tempFileName.c_str(), originalFile.c_str());
                 perror(strerror(errno));
+                removePath(tempFileName);
             }
         }
     }
@@ -372,22 +374,14 @@ class Cache {
 
             // Handling .recover files  
             if (path.find(".recover") != string::npos) {     
-                string recoveryPath = path;           
-                string tempPath = recoveryPath.substr(0, recoveryPath.length() - 8);
-                printf("%s\t : .recovery = %s\n .temp = %s \n", __func__, recoveryPath.c_str(), tempPath.c_str());
-                if (pathExists(".temp", tempPath)) {    
-                    string originalPath = translatePath(recoveryPath);
-                    printf("%s\t : Original Path: %s\n", __func__, originalPath.c_str());
-                    renameFile(tempPath, originalPath);
-                }
-                removePath(recoveryPath);
+                string recoveryPath = path;                           
+                string originalPath = translatePath(recoveryPath);
+                renameFile(recoveryPath, originalPath);
             } 
             // Handling tmp files with no recover files
             else if (path.find(".temp") != string::npos) {
-                if (path.find(".recover") == string::npos) {
-                    printf("Looks like your last write was not completed\n");
-                    removePath(path);
-                }
+                printf("Looks like your last write was not completed\n");
+                removePath(path);
             }                      
         }
     }
@@ -1109,7 +1103,7 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
 
     if (res != -1 && enableTempFileWrites && isTempFile) {
         if (crashSite == 2) raise(SIGSEGV);;
-        int tempRes = rename(tempFileName.c_str(), cache->getCachedPath(path).c_str());
+        int tempRes = rename(recovery_path.c_str(), cache->getCachedPath(path).c_str());
         if (crashSite == 3) raise(SIGSEGV);;
         cache->removePath(recovery_path);
         if (crashSite == 4) raise(SIGSEGV);;
