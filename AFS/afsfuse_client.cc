@@ -17,6 +17,7 @@
 #include <iostream>
 #include <condition_variable>
 #include <experimental/filesystem>
+#include <signal.h>
 namespace fs = std::experimental::filesystem;
 
 #include "AfsClient.h"
@@ -364,16 +365,16 @@ class Cache {
 
     void recurseDirectoryTraversal(string path) {
         string recover(".recover");
-        string tmp(".tmp");
-        for (auto entry : fs::recursive_directory_iterator(path)) {                       
+        string tmp(".temp");
+        for (auto entry : fs::recursive_directory_iterator(path)) {                          
             string path = entry.path();
+            printf("%s\t : path: %s\n", __func__, path.c_str());         
 
             // Handling .recover files  
-            if (entry.path().extension() == recover) {     
+            if (path.find(".recover") != string::npos) {     
                 string recoveryPath = path;           
                 string tempPath = recoveryPath.substr(0, recoveryPath.length() - 8);
-                printf("%s\t : File to be recovered: %s\n", __func__, recoveryPath.c_str());
-                printf("%s\t : Temp Path: %s\n", __func__, tempPath.c_str());
+                printf("%s\t : .recovery = %s\n .temp = %s \n", __func__, recoveryPath.c_str(), tempPath.c_str());
                 if (pathExists(".temp", tempPath)) {    
                     string originalPath = translatePath(recoveryPath);
                     printf("%s\t : Original Path: %s\n", __func__, originalPath.c_str());
@@ -382,8 +383,8 @@ class Cache {
                 removePath(recoveryPath);
             } 
             // Handling tmp files with no recover files
-            else if (entry.path().extension() == tmp) {
-                if (!pathExists(".recover", path)) {
+            else if (path.find(".temp") != string::npos) {
+                if (path.find(".recover") == string::npos) {
                     printf("Looks like your last write was not completed\n");
                     removePath(path);
                 }
@@ -505,6 +506,7 @@ class Cache {
 };
 
 Cache *cache;
+int crashSite = 0;
 
 #define OPTION(t, p) \
     { t, offsetof(struct options, p), 1 }
@@ -1023,8 +1025,11 @@ void closeOnServer(const char * path) {
 static int client_release(const char *path, struct fuse_file_info *fi) {
     
     fsync(fi->fh);
-    string recovery_path;
-    if (enableTempFileWrites) {
+    string recovery_path; 
+    if (enableTempFileWrites && cache->isTempFile(fi -> fh)) {
+        if (crashSite == 5) {
+            raise(SIGSEGV);
+        }
         recovery_path = cache->createRecoveryPath(fi -> fh);
     }
     string s_path(cache->getCachedPath(path));
@@ -1100,12 +1105,15 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
         tempFd = fi -> fh;
         tempFileName = cache->getCachedPath(path, true, tempFd);
     }
-
     res = close(fi->fh);
 
     if (res != -1 && enableTempFileWrites && isTempFile) {
+        if (crashSite == 2) raise(SIGSEGV);;
         int tempRes = rename(tempFileName.c_str(), cache->getCachedPath(path).c_str());
+        if (crashSite == 3) raise(SIGSEGV);;
         cache->removePath(recovery_path);
+        if (crashSite == 4) raise(SIGSEGV);;
+
         if (tempRes != -1) {
             if (true || debugMode <= DebugLevel::LevelInfo) {
                 printf("%s \t: Renamed from %s to %s.\n", __func__,
@@ -1195,8 +1203,21 @@ int main(int argc, char *argv[]) {
     }
 
     bool isServerArgPassed = false;
+    bool isCrashSiteArgPassed = false;
     std::string server_address = "localhost:50051";
-    if (argc > 1) {
+    if (argc > 2) {
+        size_t pos = std::string(argv[argc - 2]).rfind("--server=", 0);
+        if (pos == 0) {
+            isServerArgPassed = true;
+            server_address = std::string(argv[argc - 2]).substr(string("--server=").length());
+        }
+
+        pos = std::string(argv[argc - 1]).rfind("--crash=", 0);
+        if (pos == 0) {
+            isCrashSiteArgPassed = true;
+            crashSite = stoi(std::string(argv[argc - 1]).substr(string("--crash=").length()));
+        }        
+    } else if (argc > 1) {
         size_t pos = std::string(argv[argc - 1]).rfind("--server=", 0);
         if (pos == 0) {
             isServerArgPassed = true;
@@ -1207,6 +1228,9 @@ int main(int argc, char *argv[]) {
     printf("%s \t: Connecting to server at %s...\n", __func__, server_address.c_str());
 
     if (isServerArgPassed) {
+        argc -= 1;
+    }
+    if (isCrashSiteArgPassed) {
         argc -= 1;
     }
 
