@@ -420,6 +420,7 @@ class AfsServiceImpl final : public AFS::Service {
         try {
             FileReaderIntoStream<ServerWriter<FileContent> > reader(
                 rootDir, file->path(), *writer);
+            
             const size_t chunk_size =
                 1UL << 20;  // Hardcoded to 1MB, which seems to be recommended
                             // from experience.
@@ -448,14 +449,18 @@ class AfsServiceImpl final : public AFS::Service {
         get_time(&ts_start);
         while (reader->Read(&contentPart)) {
             try {
-                //if (final_path.empty()) {
-                    final_path = (rootDir + "/" + contentPart.name());
-                    temp_path = (rootDir + "/" + contentPart.name() + ".tmp" + std::to_string(rand() % 1000));
-                //}
+                if (temp_path.empty()) {
+                    string name = contentPart.name();
+                    if (name.empty() == false && name.at(0) == '/') {
+                        name = name.substr(1);
+                    }
+                    final_path = (rootDir + "/" + name);
+                    temp_path = (rootDir + "/" + name + ".tmp" + std::to_string(rand() % 1000));
+                }
 
-                writer.OpenIfNecessary(final_path);
+                writer.OpenIfNecessary(temp_path);
                 auto* const data = contentPart.mutable_content();
-                // std::cout << "Received data : " << *data << std::endl;
+                // std::cout << "Received data at server " << std::endl;
                 writer.Write(*data);
                 reply->set_err(0);
             } catch (const std::system_error& ex) {
@@ -467,10 +472,10 @@ class AfsServiceImpl final : public AFS::Service {
             }
         }
 
-        int res = 0;//rename(temp_path.c_str(), final_path.c_str());
+        int res = rename(temp_path.c_str(), final_path.c_str());
 
         if (res == -1) {
-            printf("%s \t : Renaming failed! From = %s to %s.\n", 
+            printf("%s \t : Renaming failed! From = %s to %s\n", 
                 __func__, temp_path.c_str(), final_path.c_str());
             perror(strerror(errno));
             reply->set_err(errno);

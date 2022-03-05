@@ -25,7 +25,7 @@ enum DebugLevel { LevelInfo = 0, LevelError = 1, LevelNone = 2 };
 const DebugLevel debugMode = LevelError;
 
 const unsigned long parallel_close_file_size_thresh = 
-    16777216;  // should be set in bytes, currently 16 Megabytes
+    167772160;  // should be set in bytes, currently 16 Megabytes
 const bool enableTempFileWrites =
     true;  // whether to enable creation of temporary files while writing
 
@@ -224,7 +224,12 @@ static int client_open(const char *path, struct fuse_file_info *fi) {
 
         if (res != 0) {
             if (debugMode <= DebugLevel::LevelError) {
-                printf("%s \t : Failed to copy file %s!\n", __func__, path);
+                printf("%s \t : Failed to copy file %s! Trying again..\n", __func__, path);
+                string copyCommand = "cp " + s_path + " " + tempFileName;
+                res = system(copyCommand.c_str());
+                if (res == -1) {
+                    printf("%s \t : Failed to copy file %s even after retrying :(\n", __func__, path);
+                }
             }
         }
         struct stat st_buf;
@@ -1275,3 +1280,4 @@ out_error:
     errno = saved_errno;
     return -1;
 }
+

@@ -29,14 +29,13 @@ const vector<int> file_sizes = {
     one_mb,
     one_mb * 5,
     one_mb * 10,
-    one_mb * 25,
+    //one_mb * 25,
     one_mb * 50,
-    one_mb * 75,
+    //one_mb * 75,
     one_mb * 100,
-    // one_mb * 150,
-    // one_mb * 200,
-    // one_mb * 250,
-    // one_mb * 300
+    //one_mb * 200,
+    one_mb * 500,
+    one_mb * 1024
 };
 
 struct time_statistics {
@@ -66,7 +65,7 @@ void fillData() {
           int file_size = getFileSize(i);
           getRandomText(data[i], file_size);
           for (auto &s : data[i]) {
-              data_c_str[i].emplace_back(s.c_str()    );
+              data_c_str[i].emplace_back(s.c_str());
           }
       }
 }
@@ -90,7 +89,7 @@ void benchmarkApplication(string userId, vector<struct time_statistics> &ts) {
     }
 
     for (int run = 0; run < num_runs; run++) {
-        msleep(rand()%10);
+        msleep(rand()%50);
         printf("%s : Create, write test..\n", userId.c_str());
         for (int i = 0; i < max_File_Size; i++) {
             int file_size = getFileSize(i);
@@ -110,7 +109,7 @@ void benchmarkApplication(string userId, vector<struct time_statistics> &ts) {
                 continue;
             }
 
-            msleep(rand()%10);
+            msleep(rand()%50);
             struct timespec ts_write_start, ts_write_end;
 
             get_time(&ts_write_start);
@@ -150,22 +149,27 @@ void benchmarkApplication(string userId, vector<struct time_statistics> &ts) {
 
         msleep(500 + (rand()%500));
         
-        for (int i = 0; i < max_File_Size; i++) {
-            int file_size = getFileSize(i);
-
-            string fileName =
-                cachedFolder + "testFile_" + to_string(file_size) + ".txt";
-            int res = unlink(fileName.c_str());
-            if (res == -1) {
-                printf("Failed to delete the file %s.\n", fileName.c_str());
-            }
+        string clearCommand = "rm " + cachedFolder + "*";
+        int tempres = system(clearCommand.c_str());
+        if (tempres != 0) {
+            printf("Failed to delete the cache folder %s.\n", cachedFolder.c_str());
         }
+        // for (int i = 0; i < max_File_Size; i++) {
+        //     int file_size = getFileSize(i);
+
+        //     string fileName =
+        //         cachedFolder + "testFile_" + to_string(file_size) + ".txt";
+        //     int res = unlink(fileName.c_str());
+        //     if (res == -1) {
+        //         printf("Failed to delete the file %s.\n", fileName.c_str());
+        //     }
+        // }
 
         msleep(500 + (rand()%500));
 
         printf("%s : Cold Open, Read test..\n", userId.c_str());
         for (int i = 0; i < max_File_Size; i++) {
-            msleep(rand()%10);
+            msleep(rand()%50);
             int file_size = getFileSize(i);
 
             string fileName =
@@ -381,3 +385,4 @@ void clearDirectory(string directory) {
     string mkdirCommand = "mkdir " + directory;
     system(mkdirCommand.c_str());
 }
+

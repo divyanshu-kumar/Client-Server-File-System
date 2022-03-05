@@ -649,7 +649,8 @@ class AfsClient {
             FileContent contentPart;
             ClientContext context;
             SequentialFileWriter writer;
-            std::string filename;
+            std::string filename = std::string(rootDir) + string(path);
+            std::string tempFileName = filename + "_" + to_string(rand() % 1000) + ".txt";
             
             // Set timeout for API
             std::chrono::system_clock::time_point deadline =
@@ -664,8 +665,8 @@ class AfsClient {
                 stub_->afsfuse_getFile(&context, requestedFile));
             try {
                 while (reader->Read(&contentPart)) {
-                    filename = std::string(rootDir) + string(path);
-                    writer.OpenIfNecessary(filename);
+                    
+                    writer.OpenIfNecessary(tempFileName);
                     auto* const data = contentPart.mutable_content();
                     writer.Write(*data);
                 };
@@ -674,6 +675,11 @@ class AfsClient {
                 currentBackoff *= MULTIPLIER;
 
                 if (status.ok()) {
+                    int temp_Res = rename(tempFileName.c_str(), filename.c_str());
+                    if (temp_Res != 0) {
+                        printf("%s \t : Failed to rename from %s to %s.\n",
+                        tempFileName.c_str(), filename.c_str());
+                    }
                     return true;
                 }
 
@@ -699,3 +705,4 @@ class AfsClient {
    private:
     std::unique_ptr<AFS::Stub> stub_;
 };
+
