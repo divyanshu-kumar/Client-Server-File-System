@@ -1102,11 +1102,9 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
     res = close(fi->fh);
 
     if (res != -1 && enableTempFileWrites && isTempFile) {
-        if (crashSite == 2) raise(SIGSEGV);;
+        if (crashSite == 2) raise(SIGSEGV);
         int tempRes = rename(recovery_path.c_str(), cache->getCachedPath(path).c_str());
-        if (crashSite == 3) raise(SIGSEGV);;
-        cache->removePath(recovery_path);
-        if (crashSite == 4) raise(SIGSEGV);;
+        if (crashSite == 3) raise(SIGSEGV);
 
         if (tempRes != -1) {
             if (true || debugMode <= DebugLevel::LevelInfo) {
