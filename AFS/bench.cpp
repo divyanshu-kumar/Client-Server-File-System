@@ -22,8 +22,12 @@ void    getRandomText(vector<string> &data, int file_size);
 void    clearDirectory(string directory);
 
 int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    cout.tie(nullptr);
+    
     bool cleanup = false;
-    const int max_File_Size = 26; // 2's power. 2^30 = 1 GB file
+    const int max_File_Size = 30; // 2's power. 2^30 = 1 GB file
     
     clearDirectory("server");
     clearDirectory(".cached");
@@ -54,9 +58,6 @@ int main() {
         int cur_offset = 0;
         for (auto &s : data) {
             int res = pwrite(fd, s.c_str(), s.size(), cur_offset); // write(fd, s.c_str(), s.size()); 
-            if (file_size < 10) {
-                printf("%s\n", s.c_str());
-            }
             cur_offset += s.size();
         }
 
@@ -81,14 +82,15 @@ int main() {
 
         //msleep(100);
 
-        if (cleanup) {
-            string deleteCommand = "rm " + fileName;
-            system(deleteCommand.c_str());
-        }
+        //if (cleanup) {
+        //    string deleteCommand = "rm " + fileName;
+        //    system(deleteCommand.c_str());
+        //}
     }
 
-    msleep(1000);
+    msleep(5000);
     clearDirectory(".cached");
+    //msleep(5000);
 
     cleanup = false;
     
@@ -120,9 +122,6 @@ int main() {
             int res = pread(fd, buf, buf_size, cur_offset); //read(fd, buf, 131072);
             cur_offset += res;
             num_bytes_read += res;
-            if (file_size < 10) {
-                printf("%s\n", buf);
-            }
         }
 
         get_time(&ts_read_end);
@@ -136,24 +135,23 @@ int main() {
         get_time(&ts_close_end);
 
         if (fd == -1) {
-            printf("Failed to close file %s\n", fileName);
+            printf("Failed to close file %s\n", fileName.c_str());
         }
 
         msleep(100);
         
         printf(
-            "Open   (ms) : %.3f \t Read (ms) : %.3f \t Close (ms) : %.3f \t",
+            "Open   (ms) : %.3f \t Read  (ms) : %.3f \t Close (ms) : %.3f \t",
             get_time_diff(&ts_open_start, &ts_open_end),
             get_time_diff(&ts_read_start, &ts_read_end),
             get_time_diff(&ts_close_start, &ts_close_end));
 
         printf("File size (bytes) = %d \n", file_size);
-
-        if (cleanup) {
-            string deleteCommand = "rm " + fileName;
-            system(deleteCommand.c_str());
-        }
     }
+    msleep(5000);
+    clearDirectory(".cached");
+    msleep(5000);
+
     return 0;
 }
 

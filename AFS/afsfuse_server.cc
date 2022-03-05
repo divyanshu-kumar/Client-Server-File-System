@@ -413,10 +413,10 @@ class AfsServiceImpl final : public AFS::Service {
                            ServerWriter<FileContent>* writer) override {
         struct stat buffer;
         string filepath = rootDir.c_str() + file->path();
-        std::cout << __func__ << " : " << filepath.c_str() << endl;
-        if (stat(filepath.c_str(), &buffer) == 0) {
-            printf("%s: File exists\n", __func__);
-        }
+        //std::cout << __func__ << " : " << filepath.c_str() << endl;
+        //if (stat(filepath.c_str(), &buffer) == 0) {
+        //    printf("%s: File exists\n", __func__);
+        //}
         try {
             FileReaderIntoStream<ServerWriter<FileContent> > reader(
                 rootDir, file->path(), *writer);
@@ -424,8 +424,8 @@ class AfsServiceImpl final : public AFS::Service {
                 1UL << 20;  // Hardcoded to 1MB, which seems to be recommended
                             // from experience.
             reader.Read(chunk_size);
-            std::cout << "Sending chunk of size 1 MB from server to client"
-                      << std::endl;
+            //std::cout << "Sending chunk of size 1 MB from server to client"
+            //          << std::endl;
         } catch (const std::exception& ex) {
             std::ostringstream sts;
             sts << "Error sending the file " << filepath.c_str() << " : "
@@ -433,7 +433,7 @@ class AfsServiceImpl final : public AFS::Service {
             std::cerr << sts.str() << std::endl;
             return Status(StatusCode::ABORTED, sts.str());
         }
-        std::cout << __func__ << " : DONE " << std::endl;
+        //std::cout << __func__ << " : DONE " << std::endl;
         return Status::OK;
     }
 
@@ -504,6 +504,10 @@ void RunServer() {
 }
 
 int main(int argc, char** argv) {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    cout.tie(nullptr);
+
     struct stat buffer;
     rootDir = getCurrentWorkingDir();
     printf("CurrentWorkingDir: %s\n", rootDir.c_str());

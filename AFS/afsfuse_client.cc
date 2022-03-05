@@ -64,7 +64,7 @@ struct BoundedBuffer {
 
     void consumer();
 
-    void cleanupBuffer() { notDone = false; }
+    void cleanupBuffer() { notDone = false; not_empty.notify_one(); }
 };
 
 thread *close_thread;
@@ -74,6 +74,7 @@ inline void get_time(struct timespec *ts);
 inline double get_time_diff(struct timespec *before, struct timespec *after);
 void printFileTimeFields(const char *func, int fd);
 void printFileTimeFields(const char *func, const char *path);
+int cp(const char * to, const char * from);
 
 class Cache {
     string cachedRoot;
@@ -214,9 +215,14 @@ static int client_open(const char *path, struct fuse_file_info *fi) {
 
     if (enableTempFileWrites) {
         string tempFileName = cache->getCachedPath(path, true, -1);
-        string copyCommand = "cp " + s_path + " " + tempFileName;
-        int res = system(copyCommand.c_str());
-
+        //string copyCommand = "cp " + s_path + " " + tempFileName;
+        int res = cp(tempFileName.c_str(), s_path.c_str());//system(copyCommand.c_str());
+	
+	if (res != 0) {
+            if (debugMode <= DebugLevel::LevelError) {
+                printf("%s \t : Failed to copy file %s!\n", __func__, path);
+            }
+	}
         struct stat st_buf;
         if (lstat(s_path.c_str(), &st_buf) != 0) {
             if (debugMode <= DebugLevel::LevelError) {
@@ -323,7 +329,10 @@ static int client_write(const char *path, const char *buf, size_t size,
         printFileTimeFields(__func__, fd);
         printf("%s \t: Finished pwrite, wrote %d bytes \n", __func__, res);
     }
-    // fsync(fd);
+    bool shouldFlush = (rand() % 100) >= 90;
+    if (shouldFlush) {
+        fsync(fd);
+    }
     if (res == -1) {
         if (debugMode <= DebugLevel::LevelError) {
             printf("%s \t : Failed to write to %s : \n", __func__, path);
@@ -563,15 +572,61 @@ static int client_mknod(const char *path, mode_t mode, dev_t rdev) {
     return res;
 }
 
+bool isFileModified(const char * path, struct fuse_file_info * fi) {
+    bool isModified = true;
+    struct stat server_buf;
+
+    int res = options.afsclient->rpc_getattr(path, &server_buf);
+
+    if (res == 0) {
+        struct stat local_buf;
+
+        res = fstat(fi->fh, &local_buf);
+
+        if (res == 0) {
+            if (local_buf.st_mtim.tv_nsec == server_buf.st_mtim.tv_nsec) {
+                if (debugMode <= DebugLevel::LevelInfo) {
+                    printf(
+                        "%s \t : No writes done, so no need to send this "
+                        "file!\n",
+                        __func__);
+                }
+                isModified = false;
+            } else {
+                if (debugMode <= DebugLevel::LevelInfo) {
+                    printf(
+                        "%s \t : Need to send this file as modified time is "
+                        "different!\n",
+                        __func__);
+                }
+            }
+        } else {
+            if (debugMode <= DebugLevel::LevelError) {
+                printf("%s \t : GetAttr failed locally\n", __func__);
+                printf("%s \t : %s\n", __func__, path);
+                perror(strerror(errno));
+            }
+        }
+
+    } else {
+        if (debugMode <= DebugLevel::LevelError) {
+            printf("%s \t : GetAttr failed on server\n", __func__);
+            printf("%s \t : %s\n", __func__, path);
+            perror(strerror(errno));
+        }
+    }
+
+    return isModified;
+}
+
 static int client_flush(const char *path, struct fuse_file_info *fi) {
     if (debugMode <= DebugLevel::LevelInfo) {
         printf("%s \t: Path = %s\n", __func__, path);
     }
 
     struct timespec ts_close_start, ts_close_end;
-    if (true || debugMode <= DebugLevel::LevelInfo) {
+    if (debugMode <= DebugLevel::LevelInfo) {
         get_time(&ts_close_start);
-        printf("%s : current time = %ld", __func__, ts_close_start.tv_sec);
     }
 
     string s_path(cache->getCachedPath(path));
@@ -587,7 +642,9 @@ static int client_flush(const char *path, struct fuse_file_info *fi) {
                fi->fh);
     }
 
-    fsync(fi->fh);
+    if (isFileModified(path, fi)) {
+        fsync(fi->fh);
+    }
 
     int res = close(dup(fi->fh));
 
@@ -606,7 +663,7 @@ static int client_flush(const char *path, struct fuse_file_info *fi) {
         }
     }
 
-    if (true || debugMode <= DebugLevel::LevelInfo) {
+    if (debugMode <= DebugLevel::LevelInfo) {
         get_time(&ts_close_end);
         printf("%s \t : Diff (ms) = %f \n", __func__,
                get_time_diff(&ts_close_start, &ts_close_end));
@@ -643,7 +700,7 @@ void closeOnServer(const char *path) {
     
     if (true || debugMode <= DebugLevel::LevelInfo) {
         printf(
-            "%s : \t *******Time to fsync and send (ms)******** = %f \t size (bytes) = "
+            "%s : \t *******Time to send (ms)******** = %f \t size (bytes) = "
             "%lu \n",
             __func__, get_time_diff(&ts_send_start, &ts_send_end),
             getFileSize(path));
@@ -655,8 +712,6 @@ void closeOnServer(const char *path) {
 }
 
 static int client_release(const char *path, struct fuse_file_info *fi) {
-
-    fsync(fi->fh);
 
     string s_path(cache->getCachedPath(path));
 
@@ -683,49 +738,13 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
     }
 
     int res = 0;
-    bool needToSend = true;
+    bool needToSend = isFileModified(path, fi);
     struct stat server_buf;
 
-    res = options.afsclient->rpc_getattr(path, &server_buf);
-
-    if (res == 0) {
-        struct stat local_buf;
-
-        res = fstat(fi->fh, &local_buf);
-
-        if (res == 0) {
-            if (local_buf.st_mtim.tv_nsec == server_buf.st_mtim.tv_nsec) {
-                if (debugMode <= DebugLevel::LevelInfo) {
-                    printf(
-                        "%s \t : No writes done, so no need to send this "
-                        "file!\n",
-                        __func__);
-                }
-                needToSend = false;
-            } else {
-                if (debugMode <= DebugLevel::LevelInfo) {
-                    printf(
-                        "%s \t : Need to send this file as modified time is "
-                        "different!\n",
-                        __func__);
-                }
-            }
-        } else {
-            if (debugMode <= DebugLevel::LevelError) {
-                printf("%s \t : GetAttr failed locally\n", __func__);
-                printf("%s \t : %s\n", __func__, path);
-                perror(strerror(errno));
-            }
-        }
-
-    } else {
-        if (debugMode <= DebugLevel::LevelError) {
-            printf("%s \t : GetAttr failed on server\n", __func__);
-            printf("%s \t : %s\n", __func__, path);
-            perror(strerror(errno));
-        }
+    if (needToSend) {
+        fsync(fi->fh);
     }
-
+    
     int tempFd = -1;
     string tempFileName;
     bool isTempFile = cache->isTempFile(fi->fh);
@@ -740,8 +759,8 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
     if (res != -1 && enableTempFileWrites && isTempFile) {
         int tempRes =
             rename(tempFileName.c_str(), cache->getCachedPath(path).c_str());
-        if (tempRes != -1) {
-            if (true || debugMode <= DebugLevel::LevelInfo) {
+	if (tempRes != -1) {
+            if (debugMode <= DebugLevel::LevelInfo) {
                 printf("%s \t: Renamed from %s to %s.\n", __func__,
                        tempFileName.c_str(),
                        cache->getCachedPath(path).c_str());
@@ -768,7 +787,7 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
         return -1;
     } else {
         if (debugMode <= DebugLevel::LevelInfo) {
-            printf("%s \t: Successfully released file with fd = %lu.\n",
+            printf(" %s \t: Successfully released file with fd = %lu.\n",
                    __func__, fi->fh);
         }
     }
@@ -825,6 +844,10 @@ string getCurrentWorkingDir() {
 }
 
 int main(int argc, char *argv[]) {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    cout.tie(nullptr);
+
     if (debugMode <= DebugLevel::LevelInfo) {
         printf("%s \t: %s\n", __func__, argv[0]);
     }
@@ -897,7 +920,9 @@ int main(int argc, char *argv[]) {
 void BoundedBuffer::consumer() {
     while (notDone) {
         string path = fetch();
-        closeOnServer(path.c_str());
+	if (notDone) {
+            closeOnServer(path.c_str());
+	}
     }
 }
 
@@ -979,8 +1004,11 @@ void BoundedBuffer::deposit(string path) {
 string BoundedBuffer::fetch() {
     std::unique_lock<std::mutex> l(lock);
 
-    not_empty.wait(l, [this]() { return count != 0; });
+    not_empty.wait(l, [this]() { return (count != 0 || notDone == false); });
 
+    if (notDone == false) {
+        return "";
+    }
     string path = buffer[front];
     front = (front + 1) % capacity;
     --count;
@@ -1224,4 +1252,63 @@ void Cache::cacheFile(const char *path) {
     mirrorDirectoryStructure(path);
 
     fetchFile(path);
+}
+
+int cp(const char *to, const char *from)
+{
+    int fd_to, fd_from;
+    char buf[131072];
+    ssize_t nread;
+    int saved_errno;
+
+    fd_from = open(from, O_RDONLY);
+    if (fd_from < 0)
+        return -1;
+
+    fd_to = open(to, O_WRONLY | O_CREAT | O_EXCL, 0666);
+    if (fd_to < 0)
+        goto out_error;
+
+    while (nread = read(fd_from, buf, sizeof buf), nread > 0)
+    {
+        char *out_ptr = buf;
+        ssize_t nwritten;
+
+        do {
+            nwritten = write(fd_to, out_ptr, nread);
+
+            if (nwritten >= 0)
+            {
+                nread -= nwritten;
+                out_ptr += nwritten;
+            }
+            else if (errno != EINTR)
+            {
+                goto out_error;
+            }
+        } while (nread > 0);
+    }
+
+    if (nread == 0)
+    {
+        if (close(fd_to) < 0)
+        {
+            fd_to = -1;
+            goto out_error;
+        }
+        close(fd_from);
+
+        /* Success! */
+        return 0;
+    }
+
+  out_error:
+    saved_errno = errno;
+
+    close(fd_from);
+    if (fd_to >= 0)
+        close(fd_to);
+
+    errno = saved_errno;
+    return -1;
 }

@@ -72,8 +72,8 @@ class AfsClient {
         }
 
         if (result.err() != 0) {
-            printf("%s \t : %s\n", __func__, path.c_str());
-            perror(strerror(result.err()));
+            //printf("%s \t : %s\n", __func__, path.c_str());
+            //perror(strerror(result.err()));
             return -result.err();
         }
 
@@ -590,7 +590,7 @@ class AfsClient {
             // Set timeout for API
             std::chrono::system_clock::time_point deadline =
                 std::chrono::system_clock::now() +
-                std::chrono::milliseconds(currentBackoff);
+                std::chrono::seconds(60);
 
             context.set_wait_for_ready(true);
             context.set_deadline(deadline);
@@ -647,7 +647,7 @@ class AfsClient {
             // Set timeout for API
             std::chrono::system_clock::time_point deadline =
                 std::chrono::system_clock::now() +
-                std::chrono::milliseconds(currentBackoff);
+                std::chrono::seconds(60);
 
             context.set_wait_for_ready(true);
             context.set_deadline(deadline);
