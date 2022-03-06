@@ -12,6 +12,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <signal.h>
 
 #include "afsfuse.grpc.pb.h"
 #include "file_reader_into_stream.h"
@@ -53,6 +54,7 @@ string getCurrentWorkingDir() {
 }
 
 string rootDir;
+int crashSite;
 
 struct sdata {
     int a;
@@ -79,6 +81,9 @@ class AfsServiceImpl final : public AFS::Service {
                            Stat* reply) override {
         // cout<<"[DEBUG] : lstat: "<<s->str().c_str()<<endl;
         // printf("%s \n", __func__);
+        if (crashSite == 1) {
+            raise(SIGSEGV);
+        }      	
         struct stat st;
         char server_path[512] = {0};
         translatePath(s->str().c_str(), server_path);
@@ -467,7 +472,7 @@ class AfsServiceImpl final : public AFS::Service {
     Status afsfuse_putFile(ServerContext* context,
                            ServerReader<FileContent>* reader,
                            OutputInfo* reply) override {
-        // printf("%s : Begin\n", __func__);        	
+        // printf("%s : Begin\n", __func__);  
         string final_path, temp_path;
         FileContent contentPart;
         SequentialFileWriter writer;
@@ -558,6 +563,12 @@ int main(int argc, char** argv) {
     rootDir = getCurrentWorkingDir();
     printf("CurrentWorkingDir: %s\n", rootDir.c_str());
     string serverFolderPath = rootDir + "/" + "server";
+
+    int pos = std::string(argv[argc - 1]).rfind("--crash=", 0);
+    if (pos == 0) {
+        crashSite = stoi(std::string(argv[argc - 1]).substr(string("--crash=").length()));
+    }
+
     if (stat(serverFolderPath.c_str(), &buffer) == 0) {
         printf("%s : Folder %s exists.\n", __func__, serverFolderPath.c_str());
     } else {
