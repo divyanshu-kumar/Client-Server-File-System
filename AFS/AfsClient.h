@@ -678,7 +678,7 @@ class AfsClient {
                     int temp_Res = rename(tempFileName.c_str(), filename.c_str());
                     if (temp_Res != 0) {
                         printf("%s \t : Failed to rename from %s to %s.\n",
-                        tempFileName.c_str(), filename.c_str());
+                        __func__, tempFileName.c_str(), filename.c_str());
                     }
                     return true;
                 }
