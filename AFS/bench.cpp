@@ -30,12 +30,12 @@ const vector<int> file_sizes = {
     one_mb * 5,
     one_mb * 10,
     //one_mb * 25,
-    one_mb * 50,
+    // one_mb * 50,
     //one_mb * 75,
-    one_mb * 100,
+    // one_mb * 100,
     //one_mb * 200,
-    one_mb * 500,
-    one_mb * 1024
+    // one_mb * 500,
+    // one_mb * 1024
 };
 
 struct time_statistics {
