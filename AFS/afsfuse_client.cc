@@ -334,40 +334,29 @@ static int client_write(const char *path, const char *buf, size_t size,
         }
         return -1;
     }
+    
     if (debugMode <= DebugLevel::LevelInfo) {
         printFileTimeFields(__func__, fd);
     }
+    
     int res = pwrite(fd, buf, size, offset);
+
     if (debugMode <= DebugLevel::LevelInfo) {
         printFileTimeFields(__func__, fd);
-        printf("%s \t: Finished pwrite, wrote %d bytes \n", __func__, res);
+        printf("%s \t: Finished pwrite, wrote %d bytes, fd = %d \n", __func__, res, fd);
     }
+
     bool shouldFlush = (rand() % 100) >= 90;
     if (shouldFlush) {
-        fsync(fd);
+        fdatasync(fd);
     }
+    
     if (res == -1) {
         if (debugMode <= DebugLevel::LevelError) {
             printf("%s \t : Failed to write to %s : \n", __func__, path);
             perror(strerror(errno));
         }
         return -1;
-    } else {
-        struct stat buff;
-        struct timespec ts[2];
-        memset(&buff, 0, sizeof(struct stat));
-        res = fstat(fi->fh, &buff);
-
-        ts[0].tv_sec = buff.st_atim.tv_sec;
-        ts[0].tv_nsec = buff.st_atim.tv_nsec;
-
-        get_time(&ts[1]);
-
-        res = utimensat(AT_FDCWD, cache->getCachedPath(path).c_str(), ts,
-                        AT_SYMLINK_NOFOLLOW);
-        if (debugMode <= DebugLevel::LevelInfo) {
-            printFileTimeFields(__func__, fi->fh);
-        }
     }
     return res;
 }
@@ -654,7 +643,7 @@ static int client_flush(const char *path, struct fuse_file_info *fi) {
     }
 
     if (isFileModified(path, fi)) {
-        fsync(fi->fh);
+        fdatasync(fi->fh);
     }
 
     int res = close(dup(fi->fh));
@@ -752,7 +741,7 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
     struct stat server_buf;
 
     if (needToSend) {
-        fsync(fi->fh);
+        fdatasync(fi->fh);
     }
 
     int tempFd = -1;
@@ -817,7 +806,7 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
                getFileSize(path));
     }
 
-    return res;
+    return 0;
 }
 
 static int client_fsync(const char *path, int isdatasync, struct fuse_file_info *fi) {
