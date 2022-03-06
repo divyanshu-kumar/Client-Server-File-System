@@ -37,11 +37,11 @@ static struct options {
     int show_help;
 } options;
 
-void closeOnServer(const char *path);
+void closeOnServer(pair<string, string> path);
 void consumer();
 
 struct BoundedBuffer {
-    string *buffer;
+    pair<string, string> *buffer;
     int capacity;
 
     int front;
@@ -59,11 +59,11 @@ struct BoundedBuffer {
 
     ~BoundedBuffer();
 
-    void deposit(string path);
+    void deposit(pair<string, string> path);
 
-    string fetch();
+    pair<string, string> fetch();
 
-    void submitRequest(string path);
+    void submitRequest(pair<string, string> path);
 
     void consumer();
 
@@ -102,6 +102,14 @@ class Cache {
     void fetchFile(const char *path);
 
     void cacheFile(const char *path);
+
+    void recurseDirectoryTraversal(string path);
+
+    void removePath(string path);
+
+    string getRecoveryCachedPath(int fd);
+
+    string createRecoveryPath(int fd);
 
     void setTimeFileNameWithFd(int fd, string &path) {
         tempFdToPathMap[fd] = path;
@@ -221,7 +229,7 @@ static int client_open(const char *path, struct fuse_file_info *fi) {
 
     unsigned long fd = -1;
 
-    if (enableTempFileWrites) {
+    if (enableTempFileWrites) {            
         string tempFileName = cache->getCachedPath(path, true, -1);
         // string copyCommand = "cp " + s_path + " " + tempFileName;
         int res = cp(tempFileName.c_str(),
@@ -692,14 +700,15 @@ unsigned long getFileSize(const char *path) {
     return size;
 }
 
-void closeOnServer(const char *path) {
+void closeOnServer(pair<string ,string> path) {
+    printf("%s\t : path = %s\n", __func__, path.second.c_str());
     struct timespec ts_send_start, ts_send_end;
     if (true || debugMode <= DebugLevel::LevelInfo) {
         get_time(&ts_send_start);
     }
 
     int res =
-        options.afsclient->rpc_putFile(cache->getCachedPath("").c_str(), path);
+        options.afsclient->rpc_putFile(cache->getCachedPath("").c_str(), path.second.c_str());
 
     if (true || debugMode <= DebugLevel::LevelInfo) {
         get_time(&ts_send_end);
@@ -714,17 +723,31 @@ void closeOnServer(const char *path) {
             "%s : \t Time to send (ms) = %f \t size (bytes) = "
             "%lu, path = %s\n",
             __func__, get_time_diff(&ts_send_start, &ts_send_end),
-            getFileSize(path), path);
+            getFileSize(path.second.c_str()), path.second.c_str());
     }
 
     if (debugMode <= DebugLevel::LevelInfo) {
         printf("%s \t: Hopefully file is sent to server.\n", __func__);
     }
+
+    int tempRes = rename(path.second.c_str(), cache->getCachedPath(path.first.c_str()).c_str());
+    if (tempRes != -1) {
+        if (debugMode <= DebugLevel::LevelInfo) {
+            printf("%s \t: Renamed from %s to %s.\n", __func__,
+                    path.second.c_str(),
+                    cache->getCachedPath(path.first.c_str()).c_str());
+        }
+    } else {
+        if (debugMode <= DebugLevel::LevelError) {
+            printf("%s \t: Failed to rename from %s to %s.\n", __func__,
+                    path.second.c_str(),
+                    cache->getCachedPath(path.first.c_str()).c_str());
+            perror(strerror(errno));
+        }
+    }
 }
 
 static int client_release(const char *path, struct fuse_file_info *fi) {
-    
-    fsync(fi->fh);
     string recovery_path; 
     if (enableTempFileWrites && cache->isTempFile(fi -> fh)) {
         if (crashSite == 5) {
@@ -775,25 +798,25 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
     res = close(fi->fh);
 
     if (res != -1 && enableTempFileWrites && isTempFile) {
-        if (crashSite == 2) raise(SIGSEGV);
-        int tempRes = rename(recovery_path.c_str(), cache->getCachedPath(path).c_str());
-        if (crashSite == 3) raise(SIGSEGV);
+        // if (crashSite == 2) raise(SIGSEGV);
+        // int tempRes = rename(recovery_path.c_str(), cache->getCachedPath(path).c_str());
+        // if (crashSite == 3) raise(SIGSEGV);
 
-        if (tempRes != -1) {
-            if (debugMode <= DebugLevel::LevelInfo) {
-                printf("%s \t: Renamed from %s to %s.\n", __func__,
-                       tempFileName.c_str(),
-                       cache->getCachedPath(path).c_str());
-            }
-        } else {
-            if (debugMode <= DebugLevel::LevelError) {
-                printf("%s \t: Failed to rename from %s to %s.\n", __func__,
-                       tempFileName.c_str(),
-                       cache->getCachedPath(path).c_str());
-                printf("%s \t : %s\n", __func__, path);
-                perror(strerror(errno));
-            }
-        }
+        // if (tempRes != -1) {
+        //     if (debugMode <= DebugLevel::LevelInfo) {
+        //         printf("%s \t: Renamed from %s to %s.\n", __func__,
+        //                tempFileName.c_str(),
+        //                cache->getCachedPath(path).c_str());
+        //     }
+        // } else {
+        //     if (debugMode <= DebugLevel::LevelError) {
+        //         printf("%s \t: Failed to rename from %s to %s.\n", __func__,
+        //                tempFileName.c_str(),
+        //                cache->getCachedPath(path).c_str());
+        //         printf("%s \t : %s\n", __func__, path);
+        //         perror(strerror(errno));
+        //     }
+        // }
         cache->clearTempFile(tempFd);
     }
 
@@ -814,9 +837,9 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
 
     if (needToSend) {
         if (getFileSize(path) > parallel_close_file_size_thresh) {
-            closeBuffer->submitRequest(path);
+            closeBuffer->submitRequest(make_pair(path, recovery_path));
         } else {
-            closeOnServer(path);
+            closeOnServer(make_pair(path, recovery_path));
         }
     }
 
@@ -868,11 +891,10 @@ int main(int argc, char *argv[]) {
     cin.tie(nullptr);
     cout.tie(nullptr);
     srand(time(NULL));
-    string cachedFolderName = ".cached";
     string rootDir = getCurrentWorkingDir();
+    string cachedFolderName = ".cached";
     string clientFolderPath = rootDir + "/client";
-
-    string unmountCommand = "umount -f -l " + clientFolderPath;
+    string unmountCommand = "umount -f -l " + clientFolderPath;    
     int result = system(unmountCommand.c_str());
 
     if (debugMode <= DebugLevel::LevelInfo) {
@@ -926,9 +948,6 @@ int main(int argc, char *argv[]) {
         args.argv[0] = (char *)"";
     }
 
-    string rootDir = getCurrentWorkingDir();
-    string cachedFolderName = ".cached";
-
     struct stat buffer;
     if (debugMode <= DebugLevel::LevelInfo) {
         printf("%s \t: CurrentWorkingDir = %s\n", __func__, rootDir.c_str());
@@ -960,14 +979,14 @@ int main(int argc, char *argv[]) {
 
 void BoundedBuffer::consumer() {
     while (notDone) {
-        string path = fetch();
+        pair<string, string> path = fetch();
         if (notDone) {
-            closeOnServer(path.c_str());
+            closeOnServer(path);
         }
     }
 }
 
-void BoundedBuffer::submitRequest(string path) { deposit(path); }
+void BoundedBuffer::submitRequest(pair<string, string> path) { deposit(path); }
 
 inline void get_time(struct timespec *ts) {
     clock_gettime(CLOCK_MONOTONIC, ts);
@@ -1018,7 +1037,7 @@ void printFileTimeFields(const char *func, const char *path) {
 
 BoundedBuffer::BoundedBuffer(int capacity)
     : capacity(capacity), front(0), rear(0), count(0), notDone(true) {
-    buffer = new string[capacity];
+    buffer = new pair<string, string>[capacity];
     cout << "Shared queue system created." << endl;
 }
 
@@ -1027,7 +1046,7 @@ BoundedBuffer::~BoundedBuffer() {
     delete[] buffer;
 }
 
-void BoundedBuffer::deposit(string path) {
+void BoundedBuffer::deposit(pair<string, string> path) {
     std::unique_lock<std::mutex> l(lock);
 
     not_full.wait(l, [this]() { return count != capacity; });
@@ -1040,20 +1059,21 @@ void BoundedBuffer::deposit(string path) {
     not_empty.notify_one();
 }
 
-string BoundedBuffer::fetch() {
+pair<string, string> BoundedBuffer::fetch() {
     std::unique_lock<std::mutex> l(lock);
 
     not_empty.wait(l, [this]() { return (count != 0 || notDone == false); });
 
     if (notDone == false) {
-        return "";
+        return make_pair("", "");
     }
-    string path = buffer[front];
+    pair<string, string> path = buffer[front];
     front = (front + 1) % capacity;
     --count;
 
     l.unlock();
     not_full.notify_one();
+
 
     return path;
 }
@@ -1337,7 +1357,7 @@ int renameFile(string tempFileName, string originalFile) {
             printf("%s \t: Failed to rename from %s to %s.\n", __func__,
                 tempFileName.c_str(), originalFile.c_str());
             perror(strerror(errno));
-            removePath(tempFileName);
+            cache->removePath(tempFileName);
         }
     }
 }
