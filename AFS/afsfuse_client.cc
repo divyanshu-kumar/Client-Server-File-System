@@ -724,6 +724,23 @@ void closeOnServer(const char *path) {
     }
 }
 
+void renameRecoveryFileDuringRelease(string tempFileName, string originalFile) {
+    int tempRes = rename(tempFileName.c_str(), originalFile.c_str());        
+    if (tempRes != -1) {
+        if (true || debugMode <= DebugLevel::LevelInfo) {
+            printf("%s \t: Renamed from %s to %s.\n", __func__,
+                tempFileName.c_str(), originalFile.c_str());
+        }
+    }
+    else {
+        if (debugMode <= DebugLevel::LevelError) {
+            printf("%s \t: Failed to rename from %s to %s.\n", __func__,
+                tempFileName.c_str(), originalFile.c_str());
+            perror(strerror(errno));
+        }
+    }
+}
+
 static int client_release(const char *path, struct fuse_file_info *fi) {
     string s_path(cache->getCachedPath(path));
 
@@ -754,14 +771,14 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
     struct stat server_buf;
 
     string recovery_path; 
-    if (enableTempFileWrites && cache->isTempFile(fi -> fh)) {
-        if (crashSite == 5) {
-            raise(SIGSEGV);
-        }
-        recovery_path = cache->createRecoveryPath(fi -> fh);
-    }
     if (needToSend) {        
-        fdatasync(fi->fh);        
+        fdatasync(fi->fh);
+        if (enableTempFileWrites && cache->isTempFile(fi -> fh)) {
+            if (crashSite == 5) {
+                raise(SIGSEGV);
+            }
+            recovery_path = cache->createRecoveryPath(fi -> fh);
+        }        
     }
 
     int tempFd = -1;
@@ -773,29 +790,6 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
         tempFileName = cache->getCachedPath(path, true, tempFd);
     }
     res = close(fi->fh);
-
-    if (res != -1 && enableTempFileWrites && isTempFile) {
-        if (crashSite == 2) raise(SIGSEGV);
-        int tempRes = rename(recovery_path.c_str(), cache->getCachedPath(path).c_str());
-        if (crashSite == 3) raise(SIGSEGV);
-
-        if (tempRes != -1) {
-            if (debugMode <= DebugLevel::LevelInfo) {
-                printf("%s \t: Renamed from %s to %s.\n", __func__,
-                       recovery_path.c_str(),
-                       cache->getCachedPath(path).c_str());
-            }
-        } else {
-            if (debugMode <= DebugLevel::LevelError) {
-                printf("%s \t: Failed to rename from %s to %s.\n", __func__,
-                       recovery_path.c_str(),
-                       cache->getCachedPath(path).c_str());
-                printf("%s \t : %s\n", __func__, path);
-                perror(strerror(errno));
-            }
-        }
-        cache->clearTempFile(tempFd);
-    }
 
     if (res == -1) {
         if (debugMode <= DebugLevel::LevelError) {
@@ -814,9 +808,17 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
 
     if (needToSend) {
         if (getFileSize(path) > parallel_close_file_size_thresh) {
+            if (enableTempFileWrites && isTempFile) {
+                renameRecoveryFileDuringRelease(recovery_path, cache->getCachedPath(path));
+                cache->clearTempFile(tempFd);
+            }
             closeBuffer->submitRequest(path);
         } else {
             closeOnServer(path);
+            if (enableTempFileWrites && isTempFile) {
+                renameRecoveryFileDuringRelease(recovery_path, cache->getCachedPath(path));
+                cache->clearTempFile(tempFd);
+            }            
         }
     }
 
