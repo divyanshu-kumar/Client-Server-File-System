@@ -780,13 +780,13 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
         if (tempRes != -1) {
             if (debugMode <= DebugLevel::LevelInfo) {
                 printf("%s \t: Renamed from %s to %s.\n", __func__,
-                       tempFileName.c_str(),
+                       recovery_path.c_str(),
                        cache->getCachedPath(path).c_str());
             }
         } else {
             if (debugMode <= DebugLevel::LevelError) {
                 printf("%s \t: Failed to rename from %s to %s.\n", __func__,
-                       tempFileName.c_str(),
+                       recovery_path.c_str(),
                        cache->getCachedPath(path).c_str());
                 printf("%s \t : %s\n", __func__, path);
                 perror(strerror(errno));
@@ -1374,7 +1374,7 @@ void Cache::recurseDirectoryTraversal(string path) {
             }
 
             if (debugMode <= DebugLevel::LevelInfo) {
-                printf("%s : \t File sent to server\n");
+                printf("%s : \t File sent to server\n", __func__);
             }
         } 
         // Handling tmp files with no recover files
