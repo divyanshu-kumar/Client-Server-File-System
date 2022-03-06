@@ -14,15 +14,12 @@
 
 #include <chrono>
 #include <condition_variable>
-<<<<<<< HEAD
 #include <experimental/filesystem>
 #include <signal.h>
 namespace fs = std::experimental::filesystem;
-=======
 #include <iostream>
 #include <mutex>
 #include <thread>
->>>>>>> working
 
 #include "AfsClient.h"
 
@@ -92,291 +89,7 @@ class Cache {
     unordered_map<int, std::string> tempFdToPathMap;
 
    public:
-<<<<<<< HEAD
-    Cache(string currentWorkDir, string cachedFolderName) {
-        if (debugMode <= DebugLevel::LevelInfo) {
-            printf("%s \t: Current Working Dir : %s\n", __func__,
-                   currentWorkDir.c_str());
-        }
-        cachedRoot = currentWorkDir + "/" + cachedFolderName;
-        makeCacheFolder();
-    }
-
-    void makeCacheFolder() {
-        struct stat buffer;
-        if (stat(cachedRoot.c_str(), &buffer) == 0) {
-            if (debugMode <= DebugLevel::LevelInfo) {
-                printf("%s \t: Cached folder already exists. Path = %s\n",
-                       __func__, cachedRoot.c_str());
-            }
-        } else {
-            int status = mkdir(cachedRoot.c_str(), 0777);
-
-            if (status != 0) {
-                if (debugMode <= DebugLevel::LevelError) {
-                    printf("%s \t: Failed to create cached directory!\n",
-                           __func__);
-                }
-            } else {
-                if (debugMode <= DebugLevel::LevelInfo) {
-                    printf("%s \t: Successfully created cached directory.\n",
-                           __func__);
-                }
-            }
-        }
-    }
-
-    string getCachedPath(const char *path, bool tempPath = false, int fd = -1) {
-        if (debugMode <= DebugLevel::LevelInfo) {
-            printf("%s \t: Requested for %s , Returned %s \n", __func__, path,
-                   (cachedRoot + string(path)).c_str());
-        }
-        if (enableTempFileWrites && tempPath == true) {
-            if (debugMode <= DebugLevel::LevelInfo) {
-                printf("%s \t: Requested for %s , Returned %s \n", __func__, path,
-                    (cachedRoot + string(path)).c_str());
-            }
-            string tempFileName;
-            if (fd == -1) {
-                tempFileName =  cachedRoot + 
-                                string(path) + 
-                                ".temp." + 
-                                std::to_string(rand() % 10000);
-            }
-            else {
-                auto it = tempFdToPathMap.find(fd);
-                if (it == tempFdToPathMap.end()) {
-                    if (debugMode <= DebugLevel::LevelError) {
-                        printf("%s \t: Requested temp path for fd = %d"
-                            " but it is not in map.\n", __func__, fd);
-                    }
-                }
-                else {
-                    tempFileName = it->second;
-                }
-            }
-            return tempFileName;
-        }
-        return cachedRoot + string(path);
-    }
-
-    string createRecoveryPath(int fd) {
-        string tempPath = getCachedPath("", true, fd);
-        string recoveryPath = tempPath + ".recover";
-        printf("%s\t : Recovery Path: %s\n", __func__, recoveryPath.c_str());
-        int res = rename(tempPath.c_str(), recoveryPath.c_str());
-        
-        if (res == -1) {
-            if (debugMode <= DebugLevel::LevelError) {
-                printf("%s \t: Renaming %s to %s Failed\n", __func__, tempPath.c_str(), recoveryPath.c_str());
-            }
-        } else {
-            if (debugMode <= DebugLevel::LevelInfo) {
-                printf("%s \t: Renaming %s to %s Success\n", __func__, tempPath.c_str(), recoveryPath.c_str());
-            }
-        }
-        return recoveryPath;
-    }
-
-    void removePath(string path) {
-        string command = "rm " + path;
-        int res = system(command.c_str());
-        if (res == -1) {
-            if (debugMode <= DebugLevel::LevelError) {
-                printf("%s \t: Path: %s Removal Failed\n", __func__, path.c_str());
-            }
-        } else {
-            if (debugMode <= DebugLevel::LevelInfo) {
-                printf("%s \t: Path: %s Removal Success\n", __func__, path.c_str());
-            }
-        }
-    }
-
-    string getRecoveryCachedPath(int fd) {
-        auto it = tempFdToPathMap.find(fd);
-        string recovery_path;
-        if (it != tempFdToPathMap.end()) {
-            recovery_path = it->second + ".recover";
-            if (debugMode <= DebugLevel::LevelInfo) {
-                printf("%s \t: Recovery Path: %s\n", __func__, recovery_path.c_str());
-            }
-        } else {
-            if (debugMode <= DebugLevel::LevelError) {
-                printf("%s \t: Requested temp path for fd = %d"
-                        " but it is not in map.\n", __func__, fd);
-            }
-        }
-        return recovery_path;
-    }
-
-    void correctStaleness(const char *path, struct stat *buffer) {
-        if (debugMode <= DebugLevel::LevelInfo) {
-            printf("%s \t: Path = %s\n", __func__, path);
-        }
-        struct stat remoteFileStatBuffer;
-        int res = options.afsclient->rpc_getattr(path, &remoteFileStatBuffer);
-        if (res == -1) {
-            return;
-        }
-
-        struct timespec lastModifiedTime;
-        lastModifiedTime.tv_sec = remoteFileStatBuffer.st_mtim.tv_sec;
-        lastModifiedTime.tv_nsec = remoteFileStatBuffer.st_mtim.tv_nsec;
-
-        if (buffer->st_mtim.tv_sec != lastModifiedTime.tv_sec) {
-            printf("%s \t: File is pretty old. Let's refresh it.\n",
-                       __func__);
-            int res =
-                options.afsclient->rpc_getattr(path, &remoteFileStatBuffer);
-            if (res == -1) {
-                return;
-            }
-
-            if (remoteFileStatBuffer.st_mtim.tv_sec - buffer->st_mtim.tv_sec != 0) {
-                fetchFile(path);
-            }
-        }
-        // struct timespec currentTime;
-        // clock_gettime(CLOCK_REALTIME, &currentTime);
-
-        // if ((currentTime.tv_sec - buffer->st_mtim.tv_sec) > stalenessLimit) {
-        //     printf("%s \t: Diff in time = %ld\n",
-        //                __func__, currentTime.tv_sec - buffer->st_mtim.tv_sec);
-        //     if (debugMode <= DebugLevel::LevelInfo) {
-        //         printf("%s \t: File is pretty old. Let's refresh it.\n",
-        //                __func__);
-        //     }
-        //     struct stat remoteFileStatBuffer;
-        //     int res =
-        //         options.afsclient->rpc_getattr(path, &remoteFileStatBuffer);
-        //     if (res == -1) {
-        //         return;
-        //     }
-
-        //     if (remoteFileStatBuffer.st_mtim.tv_sec - buffer->st_mtim.tv_sec != 0) {
-        //         fetchFile(path);
-        //     }
-        // }
-    }
-
-    bool isCached(const char *path) {
-        std::string s_path(getCachedPath(path));
-        struct stat buffer;
-        if (stat(s_path.c_str(), &buffer) != 0) {
-            if (debugMode <= DebugLevel::LevelInfo) {
-                printf("%s \t: File = %s, Cached = false\n", __func__,
-                       s_path.c_str());
-            }
-            return false;
-        }
-        if (debugMode <= DebugLevel::LevelInfo) {
-            printf("%s \t: File = %s, Cached = true\n", __func__,
-                   s_path.c_str());
-        }
-        correctStaleness(path, &buffer);
-        return true;
-    }
-
-    bool pathExists(string pathType, string path) {
-        return path.find(pathType, 0) != string::npos;
-    }
-
-    string translatePath(string recoveryFile) {
-        string::size_type loc = recoveryFile.find(".temp", 0);
-        return recoveryFile.substr(0, loc);
-    }
-
-    int renameFile(string tempFileName, string originalFile) {
-        int tempRes = rename(tempFileName.c_str(), originalFile.c_str());        
-        if (tempRes != -1) {
-            if (true || debugMode <= DebugLevel::LevelInfo) {
-                printf("%s \t: Renamed from %s to %s.\n", __func__,
-                   tempFileName.c_str(), originalFile.c_str());
-            }
-        }
-        else {
-            if (debugMode <= DebugLevel::LevelError) {
-                printf("%s \t: Failed to rename from %s to %s.\n", __func__,
-                   tempFileName.c_str(), originalFile.c_str());
-                perror(strerror(errno));
-                removePath(tempFileName);
-            }
-        }
-    }
-
-    void recurseDirectoryTraversal(string path) {
-        string recover(".recover");
-        string tmp(".temp");
-        for (auto entry : fs::recursive_directory_iterator(path)) {                          
-            string path = entry.path();
-            printf("%s\t : path: %s\n", __func__, path.c_str());         
-
-            // Handling .recover files  
-            if (path.find(".recover") != string::npos) {     
-                string recoveryPath = path;                           
-                string originalPath = translatePath(recoveryPath);
-                renameFile(recoveryPath, originalPath);
-            } 
-            // Handling tmp files with no recover files
-            else if (path.find(".temp") != string::npos) {
-                printf("Looks like your last write was not completed\n");
-                removePath(path);
-            }                      
-        }
-    }
-
-    void mirrorDirectoryStructure(const char *path) {
-        std::string s_path(path);
-        std::size_t lastPos = s_path.find_last_of("/");
-        struct stat tempStatBuffer;
-        if (stat(s_path.substr(0, lastPos).c_str(), &tempStatBuffer) == 0) {
-            return;
-        }
-        std::size_t prevPos = 0, pos = s_path.find('/');
-        while (pos != std::string::npos) {
-            prevPos = pos;
-            pos = s_path.find('/', pos + 1);
-            if (pos == std::string::npos) {
-                // It's a file, break the loop
-                break;
-            }
-            string folderName = s_path.substr(prevPos + 1, pos - prevPos - 1);
-
-            struct stat buffer;
-            string tempPath = cachedRoot + s_path.substr(0, pos);
-            if (debugMode <= DebugLevel::LevelInfo) {
-                printf("%s \t: Directory in .cached - %s\n", __func__,
-                       tempPath.c_str());
-            }
-            if (stat(tempPath.c_str(), &buffer) != 0) {
-                int res = mkdir(tempPath.c_str(), 0777);
-                if (res == -1) {
-                    if (debugMode <= DebugLevel::LevelError) {
-                        printf("%s \t: Failed creating new folder!\n",
-                               __func__);
-                    }
-                } else {
-                    if (debugMode <= DebugLevel::LevelInfo) {
-                        printf("%s \t: Created folder successfully!\n",
-                               __func__);
-                    }
-                }
-            } else {
-                if (debugMode <= DebugLevel::LevelInfo) {
-                    printf("%s \t: Folder already exists!\n", __func__);
-                }
-            }
-        }
-    }
-
-    void fetchFile(const char *path) {
-        if (debugMode <= DebugLevel::LevelInfo) {
-            printf("%s \t: Fetching file %s from server.\n", __func__, path);
-        }
-        options.afsclient->rpc_getFile(cachedRoot.c_str(), path);
-=======
     Cache(string currentWorkDir, string cachedFolderName);
->>>>>>> working
 
     void makeCacheFolder();
 
@@ -391,6 +104,12 @@ class Cache {
     void fetchFile(const char *path);
 
     void cacheFile(const char *path);
+
+    string createRecoveryPath(int fd);
+
+    string getRecoveryCachedPath(int fd);
+
+    void recurseDirectoryTraversal(string path);
 
     void setTimeFileNameWithFd(int fd, string &path) {
         tempFdToPathMap[fd] = path;
@@ -934,14 +653,10 @@ static int client_flush(const char *path, struct fuse_file_info *fi) {
                fi->fh);
     }
 
-<<<<<<< HEAD
-    fsync(fi->fh);
-=======
     if (isFileModified(path, fi)) {
         fdatasync(fi->fh);
     }
 
->>>>>>> working
     int res = close(dup(fi->fh));
 
     if (res == -1) {
@@ -1008,18 +723,6 @@ void closeOnServer(const char *path) {
 }
 
 static int client_release(const char *path, struct fuse_file_info *fi) {
-<<<<<<< HEAD
-    
-    fsync(fi->fh);
-    string recovery_path; 
-    if (enableTempFileWrites && cache->isTempFile(fi -> fh)) {
-        if (crashSite == 5) {
-            raise(SIGSEGV);
-        }
-        recovery_path = cache->createRecoveryPath(fi -> fh);
-    }
-=======
->>>>>>> working
     string s_path(cache->getCachedPath(path));
 
     struct timespec ts_close_start, ts_close_end;
@@ -1048,8 +751,15 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
     bool needToSend = isFileModified(path, fi);
     struct stat server_buf;
 
+    string recovery_path; 
     if (needToSend) {
-        fdatasync(fi->fh);
+        fdatasync(fi->fh);        
+        if (enableTempFileWrites && cache->isTempFile(fi -> fh)) {
+            if (crashSite == 5) {
+                raise(SIGSEGV);
+            }
+            recovery_path = cache->createRecoveryPath(fi -> fh);
+        }
     }
 
     int tempFd = -1;
@@ -1063,15 +773,10 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
     res = close(fi->fh);
 
     if (res != -1 && enableTempFileWrites && isTempFile) {
-<<<<<<< HEAD
         if (crashSite == 2) raise(SIGSEGV);
         int tempRes = rename(recovery_path.c_str(), cache->getCachedPath(path).c_str());
         if (crashSite == 3) raise(SIGSEGV);
 
-=======
-        int tempRes =
-            rename(tempFileName.c_str(), cache->getCachedPath(path).c_str());
->>>>>>> working
         if (tempRes != -1) {
             if (debugMode <= DebugLevel::LevelInfo) {
                 printf("%s \t: Renamed from %s to %s.\n", __func__,
@@ -1230,12 +935,6 @@ int main(int argc, char *argv[]) {
         args.argv[0] = (char *)"";
     }
 
-<<<<<<< HEAD
-    string rootDir = getCurrentWorkingDir();
-    string cachedFolderName = ".cached";
-
-=======
->>>>>>> working
     struct stat buffer;
     if (debugMode <= DebugLevel::LevelInfo) {
         printf("%s \t: CurrentWorkingDir = %s\n", __func__, rootDir.c_str());
@@ -1573,6 +1272,103 @@ void Cache::cacheFile(const char *path) {
     fetchFile(path);
 }
 
+string Cache::createRecoveryPath(int fd) {
+    string tempPath = getCachedPath("", true, fd);
+    string recoveryPath = tempPath + ".recover";
+    printf("%s\t : Recovery Path: %s\n", __func__, recoveryPath.c_str());
+    int res = rename(tempPath.c_str(), recoveryPath.c_str());
+    
+    if (res == -1) {
+        if (debugMode <= DebugLevel::LevelError) {
+            printf("%s \t: Renaming %s to %s Failed\n", __func__, tempPath.c_str(), recoveryPath.c_str());
+        }
+    } else {
+        if (debugMode <= DebugLevel::LevelInfo) {
+            printf("%s \t: Renaming %s to %s Success\n", __func__, tempPath.c_str(), recoveryPath.c_str());
+        }
+    }
+    return recoveryPath;
+}
+
+void removePath(string path) {
+    string command = "rm " + path;
+    int res = system(command.c_str());
+    if (res == -1) {
+        if (debugMode <= DebugLevel::LevelError) {
+            printf("%s \t: Path: %s Removal Failed\n", __func__, path.c_str());
+        }
+    } else {
+        if (debugMode <= DebugLevel::LevelInfo) {
+            printf("%s \t: Path: %s Removal Success\n", __func__, path.c_str());
+        }
+    }
+}
+
+string Cache::getRecoveryCachedPath(int fd) {
+    auto it = tempFdToPathMap.find(fd);
+    string recovery_path;
+    if (it != tempFdToPathMap.end()) {
+        recovery_path = it->second + ".recover";
+        if (debugMode <= DebugLevel::LevelInfo) {
+            printf("%s \t: Recovery Path: %s\n", __func__, recovery_path.c_str());
+        }
+    } else {
+        if (debugMode <= DebugLevel::LevelError) {
+            printf("%s \t: Requested temp path for fd = %d"
+                    " but it is not in map.\n", __func__, fd);
+        }
+    }
+    return recovery_path;
+}
+
+    bool pathExists(string pathType, string path) {
+    return path.find(pathType, 0) != string::npos;
+}
+
+string translatePath(string recoveryFile) {
+    string::size_type loc = recoveryFile.find(".temp", 0);
+    return recoveryFile.substr(0, loc);
+}
+
+int renameFile(string tempFileName, string originalFile) {
+    int tempRes = rename(tempFileName.c_str(), originalFile.c_str());        
+    if (tempRes != -1) {
+        if (true || debugMode <= DebugLevel::LevelInfo) {
+            printf("%s \t: Renamed from %s to %s.\n", __func__,
+                tempFileName.c_str(), originalFile.c_str());
+        }
+    }
+    else {
+        if (debugMode <= DebugLevel::LevelError) {
+            printf("%s \t: Failed to rename from %s to %s.\n", __func__,
+                tempFileName.c_str(), originalFile.c_str());
+            perror(strerror(errno));
+            removePath(tempFileName);
+        }
+    }
+}
+
+void Cache::recurseDirectoryTraversal(string path) {
+    string recover(".recover");
+    string tmp(".temp");
+    for (auto entry : fs::recursive_directory_iterator(path)) {                          
+        string path = entry.path();
+        printf("%s\t : path: %s\n", __func__, path.c_str());         
+
+        // Handling .recover files  
+        if (path.find(".recover") != string::npos) {     
+            string recoveryPath = path;                           
+            string originalPath = translatePath(recoveryPath);
+            renameFile(recoveryPath, originalPath);
+        } 
+        // Handling tmp files with no recover files
+        else if (path.find(".temp") != string::npos) {
+            printf("Looks like your last write was not completed\n");
+            removePath(path);
+        }                      
+    }
+}
+
 int cp(const char *to, const char *from) {
     int fd_to, fd_from;
     char buf[131072];
@@ -1620,4 +1416,5 @@ out_error:
     errno = saved_errno;
     return -1;
 }
+
 

@@ -475,11 +475,6 @@ class AfsServiceImpl final : public AFS::Service {
         get_time(&ts_start);
         while (reader->Read(&contentPart)) {
             try {
-<<<<<<< HEAD
-                if (final_path.empty()) {
-                    final_path = (rootDir + "/" + contentPart.name());
-                    temp_path = (rootDir + "/" + contentPart.name() + ".tmp" + std::to_string(rand() % 1000));                    
-=======
                 if (temp_path.empty()) {
                     string name = contentPart.name();
                     if (name.empty() == false && name.at(0) == '/') {
@@ -487,7 +482,6 @@ class AfsServiceImpl final : public AFS::Service {
                     }
                     final_path = (rootDir + "/" + name);
                     temp_path = (rootDir + "/" + name + ".tmp" + std::to_string(rand() % 1000));
->>>>>>> working
                 }
 
                 if (!doesPathExist(final_path)) {
