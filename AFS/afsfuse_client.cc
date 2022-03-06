@@ -1132,7 +1132,7 @@ void Cache::correctStaleness(const char *path, struct stat *buffer) {
 
     if ((buffer->st_mtim.tv_sec < lastModifiedTime.tv_sec) 
         || 
-        ((buffer->st_mtim.tv_sec < lastModifiedTime.tv_sec) 
+        ((buffer->st_mtim.tv_sec == lastModifiedTime.tv_sec) 
           && 
         (buffer->st_mtim.tv_nsec < lastModifiedTime.tv_nsec)
         )
