@@ -7,7 +7,7 @@
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
-
+#include <ctime>
 #include <iostream>
 #include <memory>
 #include <sstream>
@@ -439,19 +439,20 @@ class AfsServiceImpl final : public AFS::Service {
                            ServerWriter<FileContent>* writer) override {
         struct stat buffer;
         string filepath = rootDir.c_str() + file->path();
-        std::cout << __func__ << " : " << filepath.c_str() << endl;
-        if (stat(filepath.c_str(), &buffer) == 0) {
-            printf("%s: File exists\n", __func__);
-        }
+        //std::cout << __func__ << " : " << filepath.c_str() << endl;
+        //if (stat(filepath.c_str(), &buffer) == 0) {
+        //    printf("%s: File exists\n", __func__);
+        //}
         try {
             FileReaderIntoStream<ServerWriter<FileContent> > reader(
                 rootDir, file->path(), *writer);
+            
             const size_t chunk_size =
                 1UL << 20;  // Hardcoded to 1MB, which seems to be recommended
                             // from experience.
             reader.Read(chunk_size);
-            std::cout << "Sending chunk of size 1 MB from server to client"
-                      << std::endl;
+            //std::cout << "Sending chunk of size 1 MB from server to client"
+            //          << std::endl;
         } catch (const std::exception& ex) {
             std::ostringstream sts;
             sts << "Error sending the file " << filepath.c_str() << " : "
@@ -459,7 +460,7 @@ class AfsServiceImpl final : public AFS::Service {
             std::cerr << sts.str() << std::endl;
             return Status(StatusCode::ABORTED, sts.str());
         }
-        std::cout << __func__ << " : DONE " << std::endl;
+        //std::cout << __func__ << " : DONE " << std::endl;
         return Status::OK;
     }
 
@@ -474,9 +475,19 @@ class AfsServiceImpl final : public AFS::Service {
         get_time(&ts_start);
         while (reader->Read(&contentPart)) {
             try {
+<<<<<<< HEAD
                 if (final_path.empty()) {
                     final_path = (rootDir + "/" + contentPart.name());
                     temp_path = (rootDir + "/" + contentPart.name() + ".tmp" + std::to_string(rand() % 1000));                    
+=======
+                if (temp_path.empty()) {
+                    string name = contentPart.name();
+                    if (name.empty() == false && name.at(0) == '/') {
+                        name = name.substr(1);
+                    }
+                    final_path = (rootDir + "/" + name);
+                    temp_path = (rootDir + "/" + name + ".tmp" + std::to_string(rand() % 1000));
+>>>>>>> working
                 }
 
                 if (!doesPathExist(final_path)) {
@@ -491,7 +502,7 @@ class AfsServiceImpl final : public AFS::Service {
                 }
                 writer.OpenIfNecessary(temp_path);
                 auto* const data = contentPart.mutable_content();
-                // std::cout << "Received data : " << *data << std::endl;
+                // std::cout << "Received data at server " << std::endl;
                 writer.Write(*data);
                 reply->set_err(0);
             } catch (const std::system_error& ex) {
@@ -506,7 +517,7 @@ class AfsServiceImpl final : public AFS::Service {
         int res = rename(temp_path.c_str(), final_path.c_str());
 
         if (res == -1) {
-            printf("%s \t : Renaming failed! From = %s to %s.\n", 
+            printf("%s \t : Renaming failed! From = %s to %s\n", 
                 __func__, temp_path.c_str(), final_path.c_str());
             perror(strerror(errno));
             reply->set_err(errno);
@@ -540,6 +551,10 @@ void RunServer() {
 }
 
 int main(int argc, char** argv) {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    cout.tie(nullptr);
+    srand(time(NULL));
     struct stat buffer;
     rootDir = getCurrentWorkingDir();
     printf("CurrentWorkingDir: %s\n", rootDir.c_str());

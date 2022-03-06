@@ -11,9 +11,9 @@
 #include "sequential_file_writer.h"
 #include "utils.h"
 
-#define MAX_NUM_RETRIES (12)
-#define INITIAL_BACKOFF_MS (50)
-#define MULTIPLIER (1.5)
+#define MAX_NUM_RETRIES (7)
+#define INITIAL_BACKOFF_MS (100)
+#define MULTIPLIER (2)
 
 using grpc::Channel;
 using grpc::ClientContext;
@@ -649,8 +649,7 @@ class AfsClient {
             FileContent contentPart;
             ClientContext context;
             SequentialFileWriter writer;
-            std::string filename = std::string(rootDir) + string(path);
-            std::string tempFileName = filename + "_" + to_string(rand() % 1000) + ".txt";
+            std::string filename;
             
             // Set timeout for API
             std::chrono::system_clock::time_point deadline =
@@ -665,8 +664,8 @@ class AfsClient {
                 stub_->afsfuse_getFile(&context, requestedFile));
             try {
                 while (reader->Read(&contentPart)) {
-                    
-                    writer.OpenIfNecessary(tempFileName);
+                    filename = std::string(rootDir) + string(path);
+                    writer.OpenIfNecessary(filename);
                     auto* const data = contentPart.mutable_content();
                     writer.Write(*data);
                 };
@@ -675,11 +674,6 @@ class AfsClient {
                 currentBackoff *= MULTIPLIER;
 
                 if (status.ok()) {
-                    int temp_Res = rename(tempFileName.c_str(), filename.c_str());
-                    if (temp_Res != 0) {
-                        printf("%s \t : Failed to rename from %s to %s.\n",
-                        __func__, tempFileName.c_str(), filename.c_str());
-                    }
                     return true;
                 }
 
@@ -705,4 +699,3 @@ class AfsClient {
    private:
     std::unique_ptr<AFS::Stub> stub_;
 };
-
