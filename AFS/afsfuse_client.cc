@@ -1275,7 +1275,9 @@ void Cache::cacheFile(const char *path) {
 string Cache::createRecoveryPath(int fd) {
     string tempPath = getCachedPath("", true, fd);
     string recoveryPath = tempPath + ".recover";
-    printf("%s\t : Recovery Path: %s\n", __func__, recoveryPath.c_str());
+    if (debugMode <= DebugLevel::LevelInfo) {
+        printf("%s\t : Recovery Path: %s\n", __func__, recoveryPath.c_str());
+    }
     int res = rename(tempPath.c_str(), recoveryPath.c_str());
     
     if (res == -1) {
@@ -1353,13 +1355,27 @@ void Cache::recurseDirectoryTraversal(string path) {
     string tmp(".temp");
     for (auto entry : fs::recursive_directory_iterator(path)) {                          
         string path = entry.path();
-        printf("%s\t : path: %s\n", __func__, path.c_str());         
+        if (debugMode <= DebugLevel::LevelInfo) {
+            printf("%s\t : path: %s\n", __func__, path.c_str());         
+        }
 
         // Handling .recover files  
         if (path.find(".recover") != string::npos) {     
             string recoveryPath = path;                           
             string originalPath = translatePath(recoveryPath);
             renameFile(recoveryPath, originalPath);
+
+            // Need to put check to send file to server after checking modification time
+            std::size_t lastPos = originalPath.find_last_of("/");
+            string originalFile = originalPath.substr(lastPos, originalFile.length());
+            int res = options.afsclient->rpc_putFile(cache->getCachedPath("").c_str(), originalFile.c_str());
+            if ((res < 0) && (debugMode <= DebugLevel::LevelError)) {
+                printf("%s \t: File failed to send to server.\n", __func__);
+            }
+
+            if (debugMode <= DebugLevel::LevelInfo) {
+                printf("%s : \t File sent to server\n");
+            }
         } 
         // Handling tmp files with no recover files
         else if (path.find(".temp") != string::npos) {
