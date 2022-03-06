@@ -694,14 +694,19 @@ unsigned long getFileSize(const char *path) {
 }
 
 void closeOnServer(pair<string ,string> path) {
-    printf("%s\t : path = %s\n", __func__, path.second.c_str());
+    printf("%s\t : original path = %s -- recovery path = %s\n", __func__, path.first.c_str(), path.second.c_str());
     struct timespec ts_send_start, ts_send_end;
     if (true || debugMode <= DebugLevel::LevelInfo) {
         get_time(&ts_send_start);
     }
 
-    int res =
-        options.afsclient->rpc_putFile(cache->getCachedPath("").c_str(), path.second.c_str());
+    int res = -1;
+    if (path.first.compare(path.second) != 0) {
+        // Sending recovery file
+        res = options.afsclient->rpc_putFile(path.second.c_str(), path.first.c_str());
+    } else {
+        res = options.afsclient->rpc_putFile(cache->getCachedPath("").c_str(), path.second.c_str());
+    }
 
     if (true || debugMode <= DebugLevel::LevelInfo) {
         get_time(&ts_send_end);
@@ -716,38 +721,36 @@ void closeOnServer(pair<string ,string> path) {
             "%s : \t Time to send (ms) = %f \t size (bytes) = "
             "%lu, path = %s\n",
             __func__, get_time_diff(&ts_send_start, &ts_send_end),
-            getFileSize(path.second.c_str()), path.second.c_str());
+            getFileSize(path.second.c_str()), cache->getCachedPath(path.second.c_str()).c_str());
     }
 
     if (debugMode <= DebugLevel::LevelInfo) {
         printf("%s \t: Hopefully file is sent to server.\n", __func__);
     }
 
-    int tempRes = rename(path.second.c_str(), cache->getCachedPath(path.first.c_str()).c_str());
-    if (tempRes != -1) {
-        if (debugMode <= DebugLevel::LevelInfo) {
-            printf("%s \t: Renamed from %s to %s.\n", __func__,
-                    path.second.c_str(),
-                    cache->getCachedPath(path.first.c_str()).c_str());
-        }
-    } else {
-        if (debugMode <= DebugLevel::LevelError) {
-            printf("%s \t: Failed to rename from %s to %s.\n", __func__,
-                    path.second.c_str(),
-                    cache->getCachedPath(path.first.c_str()).c_str());
-            perror(strerror(errno));
+    // Both paths are sent equal for non-temp files
+    printf("%s\t : path.first: %s - path.second: %s\n", __func__, path.first.c_str(), path.second.c_str());
+    if (path.first.compare(path.second) != 0) {
+        int tempRes = rename(path.second.c_str(), cache->getCachedPath(path.first.c_str()).c_str());
+        if (tempRes != -1) {
+            if (debugMode <= DebugLevel::LevelInfo) {
+                printf("%s \t: Renamed from %s to %s.\n", __func__,
+                        path.second.c_str(),
+                        cache->getCachedPath(path.first.c_str()).c_str());
+            }
+        } else {
+            if (debugMode <= DebugLevel::LevelError) {
+                printf("%s \t: Failed to rename from %s to %s.\n", __func__,
+                        path.second.c_str(),
+                        cache->getCachedPath(path.first.c_str()).c_str());
+                perror(strerror(errno));
+            }
         }
     }
 }
 
 static int client_release(const char *path, struct fuse_file_info *fi) {
-    string recovery_path; 
-    if (enableTempFileWrites && cache->isTempFile(fi -> fh)) {
-        if (crashSite == 5) {
-            raise(SIGSEGV);
-        }
-        recovery_path = cache->createRecoveryPath(fi -> fh);
-    }
+    string recovery_path;     
     string s_path(cache->getCachedPath(path));
 
     struct timespec ts_close_start, ts_close_end;
@@ -778,6 +781,10 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
 
     if (needToSend) {
         fdatasync(fi->fh);
+        if (enableTempFileWrites && cache->isTempFile(fi -> fh)) {            
+            recovery_path = cache->createRecoveryPath(fi -> fh);
+            printf("%s\t : recovery path: %s \n", __func__, recovery_path.c_str());
+        }
     }
 
     int tempFd = -1;
@@ -829,10 +836,18 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
     }
 
     if (needToSend) {
-        if (getFileSize(path) > parallel_close_file_size_thresh) {
-            closeBuffer->submitRequest(make_pair(path, recovery_path));
+        if (enableTempFileWrites && isTempFile) {
+            if (getFileSize(path) > parallel_close_file_size_thresh) {
+                closeBuffer->submitRequest(make_pair(path, recovery_path));
+            } else {
+                closeOnServer(make_pair(path, recovery_path));
+            }
         } else {
-            closeOnServer(make_pair(path, recovery_path));
+            if (getFileSize(path) > parallel_close_file_size_thresh) {
+                closeBuffer->submitRequest(make_pair(path, path));
+            } else {
+                closeOnServer(make_pair(path, path));
+            }
         }
     }
 

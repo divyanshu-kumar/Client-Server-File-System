@@ -467,7 +467,7 @@ class AfsServiceImpl final : public AFS::Service {
     Status afsfuse_putFile(ServerContext* context,
                            ServerReader<FileContent>* reader,
                            OutputInfo* reply) override {
-        // printf("%s : Begin\n", __func__);        	
+        printf("%s : Begin\n", __func__);        	
         string final_path, temp_path;
         FileContent contentPart;
         SequentialFileWriter writer;
@@ -477,11 +477,13 @@ class AfsServiceImpl final : public AFS::Service {
             try {
                 if (temp_path.empty()) {
                     string name = contentPart.name();
+                    printf("%s\t : content part name: %s\n", __func__, name.c_str());
                     if (name.empty() == false && name.at(0) == '/') {
                         name = name.substr(1);
-                    }
+                    }                    
                     final_path = (rootDir + "/" + name);
                     temp_path = (rootDir + "/" + name + ".tmp" + std::to_string(rand() % 1000));
+                    printf("%s\t : final path: %s  temp path: %s\n", __func__, final_path.c_str(), temp_path.c_str());
                 }
 
                 if (!doesPathExist(final_path)) {
