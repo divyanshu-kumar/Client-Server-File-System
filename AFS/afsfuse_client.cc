@@ -268,7 +268,9 @@ static int client_open(const char *path, struct fuse_file_info *fi) {
         fd = open(tempFileName.c_str(), fi->flags);
 
         cache->setTimeFileNameWithFd(fd, tempFileName);
+        printf(">>>>>>>> TEMPPP >>>>>>\n");
     } else {
+        printf(">>>>>>>> NOT  TEMPPP >>>>>>\n");
         fd = open(s_path.c_str(), fi->flags);
     }
 
@@ -752,14 +754,14 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
     struct stat server_buf;
 
     string recovery_path; 
-    if (needToSend) {
-        fdatasync(fi->fh);        
-        if (enableTempFileWrites && cache->isTempFile(fi -> fh)) {
-            if (crashSite == 5) {
-                raise(SIGSEGV);
-            }
-            recovery_path = cache->createRecoveryPath(fi -> fh);
+    if (enableTempFileWrites && cache->isTempFile(fi -> fh)) {
+        if (crashSite == 5) {
+            raise(SIGSEGV);
         }
+        recovery_path = cache->createRecoveryPath(fi -> fh);
+    }
+    if (needToSend) {        
+        fdatasync(fi->fh);        
     }
 
     int tempFd = -1;
