@@ -25,7 +25,7 @@ namespace fs = std::experimental::filesystem;
 
 enum DebugLevel { LevelInfo = 0, LevelError = 1, LevelNone = 2 };
 
-const DebugLevel debugMode = LevelInfo;
+const DebugLevel debugMode = LevelNone;
 
 const unsigned long parallel_close_file_size_thresh = 
     167772160;  // should be set in bytes, currently 16 Megabytes
@@ -268,9 +268,7 @@ static int client_open(const char *path, struct fuse_file_info *fi) {
         fd = open(tempFileName.c_str(), fi->flags);
 
         cache->setTimeFileNameWithFd(fd, tempFileName);
-        printf(">>>>>>>> TEMPPP >>>>>>\n");
     } else {
-        printf(">>>>>>>> NOT  TEMPPP >>>>>>\n");
         fd = open(s_path.c_str(), fi->flags);
     }
 
@@ -696,14 +694,14 @@ unsigned long getFileSize(const char *path) {
 
 void closeOnServer(const char *path) {
     struct timespec ts_send_start, ts_send_end;
-    if (true || debugMode <= DebugLevel::LevelInfo) {
+    if (debugMode <= DebugLevel::LevelInfo) {
         get_time(&ts_send_start);
     }
 
     int res =
         options.afsclient->rpc_putFile(cache->getCachedPath("").c_str(), path);
 
-    if (true || debugMode <= DebugLevel::LevelInfo) {
+    if (debugMode <= DebugLevel::LevelInfo) {
         get_time(&ts_send_end);
     }
 
@@ -711,7 +709,7 @@ void closeOnServer(const char *path) {
         printf("%s \t: File failed to send to server.\n", __func__);
     }
 
-    if (true || debugMode <= DebugLevel::LevelInfo) {
+    if (debugMode <= DebugLevel::LevelInfo) {
         printf(
             "%s : \t Time to send (ms) = %f \t size (bytes) = "
             "%lu, path = %s\n",
@@ -727,7 +725,7 @@ void closeOnServer(const char *path) {
 void renameRecoveryFileDuringRelease(string tempFileName, string originalFile) {
     int tempRes = rename(tempFileName.c_str(), originalFile.c_str());        
     if (tempRes != -1) {
-        if (true || debugMode <= DebugLevel::LevelInfo) {
+        if (debugMode <= DebugLevel::LevelInfo) {
             printf("%s \t: Renamed from %s to %s.\n", __func__,
                 tempFileName.c_str(), originalFile.c_str());
         }
@@ -817,7 +815,13 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
             if (enableTempFileWrites && isTempFile) {
                 std::size_t lastPos = recovery_path.find_last_of("/");
                 string originalFile = recovery_path.substr(lastPos, recovery_path.length());
+                if (crashSite == 2) {
+                    raise(SIGSEGV);
+                }
                 closeOnServer(originalFile.c_str());
+                if (crashSite == 1) {
+                    raise(SIGSEGV);
+                }
                 renameRecoveryFileDuringRelease(recovery_path, cache->getCachedPath(path));
                 cache->clearTempFile(tempFd);
             } else {
@@ -837,7 +841,7 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
 }
 
 static int client_fsync(const char *path, int isdatasync, struct fuse_file_info *fi) {
-    if (true || debugMode <= DebugLevel::LevelInfo) {
+    if (debugMode <= DebugLevel::LevelInfo) {
         printf("%s \t : Path = %s \n", __func__, path);
     }
     if (isdatasync != 0) {
@@ -1151,7 +1155,7 @@ void Cache::correctStaleness(const char *path, struct stat *buffer) {
     lastModifiedTime.tv_nsec = remoteFileStatBuffer.st_mtim.tv_nsec;
 
     if (buffer->st_mtim.tv_sec != lastModifiedTime.tv_sec) {
-        printf("%s \t: File is pretty old. Let's refresh it.\n", __func__);
+        //printf("%s \t: File is pretty old. Let's refresh it.\n", __func__);
         int res = options.afsclient->rpc_getattr(path, &remoteFileStatBuffer);
         if (res == -1) {
             return;
@@ -1343,7 +1347,7 @@ string translatePath(string recoveryFile) {
 int renameFile(string tempFileName, string originalFile) {
     int tempRes = rename(tempFileName.c_str(), originalFile.c_str());        
     if (tempRes != -1) {
-        if (true || debugMode <= DebugLevel::LevelInfo) {
+        if (debugMode <= DebugLevel::LevelInfo) {
             printf("%s \t: Renamed from %s to %s.\n", __func__,
                 tempFileName.c_str(), originalFile.c_str());
         }
@@ -1361,6 +1365,7 @@ int renameFile(string tempFileName, string originalFile) {
 void Cache::recurseDirectoryTraversal(string path) {
     string recover(".recover");
     string tmp(".temp");
+    int crashTextFlag = 0;
     for (auto entry : fs::recursive_directory_iterator(path)) {                          
         string path = entry.path();
         if (debugMode <= DebugLevel::LevelInfo) {
@@ -1369,25 +1374,36 @@ void Cache::recurseDirectoryTraversal(string path) {
 
         // Handling .recover files  
         if (path.find(".recover") != string::npos) {     
+            if (crashTextFlag == 0) {
+                printf("Crash Detected.... \nRebooting Client\n");
+                crashTextFlag = 1;
+            }
             string recoveryPath = path;                           
             string originalPath = translatePath(recoveryPath);
+            printf("Recovering File %s\n", originalPath.c_str());
             renameFile(recoveryPath, originalPath);
 
             // Need to put check to send file to server after checking modification time
             std::size_t lastPos = originalPath.find_last_of("/");
-            string originalFile = originalPath.substr(lastPos, originalFile.length());
+            string originalFile = originalPath.substr(lastPos, originalFile.length() - lastPos + 1);
             int res = options.afsclient->rpc_putFile(cache->getCachedPath("").c_str(), originalFile.c_str());
             if ((res < 0) && (debugMode <= DebugLevel::LevelError)) {
                 printf("%s \t: File failed to send to server.\n", __func__);
             }
-
+            
+            printf("Sending file :%s to Server\n", originalFile.c_str());
             if (debugMode <= DebugLevel::LevelInfo) {
                 printf("%s : \t File sent to server\n", __func__);
             }
+            printf("File sent successfully\n");
         } 
         // Handling tmp files with no recover files
         else if (path.find(".temp") != string::npos) {
-            printf("Looks like your last write was not completed\n");
+            if (crashTextFlag == 0) {
+                printf("Crash Detected.... \nRebooting Client\n");
+                crashTextFlag = 1;
+            }
+            printf("System crashed while writing. Discarding File %s\n", path.c_str());
             removePath(path);
         }                      
     }
