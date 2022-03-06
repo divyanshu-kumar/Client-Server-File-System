@@ -175,6 +175,10 @@ static void client_destroy(void *privateData) {
 
 static int client_getattr(const char *path, struct stat *stbuf,
                           struct fuse_file_info *fi) {
+    if (debugMode <= DebugLevel::LevelInfo) {
+        printf("%s \t: Path = %s\n", __func__, path);
+    }
+
     memset(stbuf, 0, sizeof(struct stat));
 
     int res = 0;
@@ -223,6 +227,9 @@ static int client_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 }
 
 static int client_open(const char *path, struct fuse_file_info *fi) {
+    if (debugMode <= DebugLevel::LevelInfo) {
+        printf("%s \t: Path = %s\n", __func__, path);
+    }
     std::string s_path(cache->getCachedPath(path));
 
     if (cache->isCached(path) == false) {
@@ -353,8 +360,8 @@ static int client_write(const char *path, const char *buf, size_t size,
     int res = pwrite(fd, buf, size, offset);
 
     if (debugMode <= DebugLevel::LevelInfo) {
-        printFileTimeFields(__func__, fd);
         printf("%s \t: Finished pwrite, wrote %d bytes, fd = %d \n", __func__, res, fd);
+        printFileTimeFields(__func__, fd);
     }
 
     bool shouldFlush = (rand() % 100) >= 90;
@@ -415,6 +422,9 @@ static int client_rmdir(const char *path) {
 
 static int client_create(const char *path, mode_t mode,
                          struct fuse_file_info *fi) {
+    if (debugMode <= DebugLevel::LevelInfo) {
+        printf("%s \t: Path = %s\n", __func__, path);
+    }
     int res = 0;
 
     res = options.afsclient->rpc_create(path, mode, fi);
@@ -740,6 +750,9 @@ void renameRecoveryFileDuringRelease(string tempFileName, string originalFile) {
 }
 
 static int client_release(const char *path, struct fuse_file_info *fi) {
+    if (debugMode <= DebugLevel::LevelInfo) {
+        printf("%s \t: Path = %s\n", __func__, path);
+    }
     string s_path(cache->getCachedPath(path));
 
     struct timespec ts_close_start, ts_close_end;
@@ -842,12 +855,15 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
 
 static int client_fsync(const char *path, int isdatasync, struct fuse_file_info *fi) {
     if (debugMode <= DebugLevel::LevelInfo) {
-        printf("%s \t : Path = %s \n", __func__, path);
+        printf("%s \t : Path = %s , isDataSync = %d\n", __func__, path, isdatasync);
     }
+    int res = 0;
     if (isdatasync != 0) {
-        return fdatasync(fi->fh);
+        res = fdatasync(fi->fh);
+    } else {
+        res = fsync(fi->fh);
     }
-    return fsync(fi->fh);
+    return res;
 }
 
 static struct client_operations : fuse_operations {
@@ -1002,6 +1018,9 @@ void printFileTimeFields(const char *func, int fd) {
     struct timespec ts[3];
     memset(&buff, 0, sizeof(struct stat));
     int res = fstat(fd, &buff);
+    if (res != 0) {
+        return;
+    }
     ts[0].tv_sec = buff.st_atim.tv_sec;
     ts[0].tv_nsec = buff.st_atim.tv_nsec;
     ts[1].tv_sec = buff.st_mtim.tv_sec;
@@ -1020,6 +1039,9 @@ void printFileTimeFields(const char *func, const char *path) {
     struct timespec ts[3];
     memset(&buff, 0, sizeof(struct stat));
     int res = lstat(path, &buff);
+    if (res != 0) {
+        return;
+    }
     ts[0].tv_sec = buff.st_atim.tv_sec;
     ts[0].tv_nsec = buff.st_atim.tv_nsec;
     ts[1].tv_sec = buff.st_mtim.tv_sec;
@@ -1144,6 +1166,7 @@ void Cache::correctStaleness(const char *path, struct stat *buffer) {
     if (debugMode <= DebugLevel::LevelInfo) {
         printf("%s \t: Path = %s\n", __func__, path);
     }
+
     struct stat remoteFileStatBuffer;
     int res = options.afsclient->rpc_getattr(path, &remoteFileStatBuffer);
     if (res == -1) {
@@ -1154,23 +1177,27 @@ void Cache::correctStaleness(const char *path, struct stat *buffer) {
     lastModifiedTime.tv_sec = remoteFileStatBuffer.st_mtim.tv_sec;
     lastModifiedTime.tv_nsec = remoteFileStatBuffer.st_mtim.tv_nsec;
 
-    if (buffer->st_mtim.tv_sec != lastModifiedTime.tv_sec) {
-        //printf("%s \t: File is pretty old. Let's refresh it.\n", __func__);
-        int res = options.afsclient->rpc_getattr(path, &remoteFileStatBuffer);
-        if (res == -1) {
-            return;
+    if ((buffer->st_mtim.tv_sec < lastModifiedTime.tv_sec) 
+        || 
+        ((buffer->st_mtim.tv_sec == lastModifiedTime.tv_sec) 
+          && 
+        (buffer->st_mtim.tv_nsec < lastModifiedTime.tv_nsec)
+        )
+       ) 
+    {
+        if (debugMode <= DebugLevel::LevelInfo) {
+            printf("%s \t: File is old. Refreshing this file : %s.\n", 
+                    __func__, path);
         }
-
-        if (remoteFileStatBuffer.st_mtim.tv_sec - buffer->st_mtim.tv_sec != 0) {
-            fetchFile(path);
-        }
+        
+        fetchFile(path);
     }
 }
 
 bool Cache::isCached(const char *path) {
     std::string s_path(getCachedPath(path));
     struct stat buffer;
-    if (stat(s_path.c_str(), &buffer) != 0) {
+    if (lstat(s_path.c_str(), &buffer) != 0) {
         if (debugMode <= DebugLevel::LevelInfo) {
             printf("%s \t: File = %s, Cached = false\n", __func__,
                    s_path.c_str());
