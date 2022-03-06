@@ -480,8 +480,13 @@ class AfsServiceImpl final : public AFS::Service {
                     if (name.empty() == false && name.at(0) == '/') {
                         name = name.substr(1);
                     }
-                    final_path = (rootDir + "/" + name);
+
                     temp_path = (rootDir + "/" + name + ".tmp" + std::to_string(rand() % 1000));
+                    if (name.find(".temp", 0) != string::npos) {
+                        string::size_type loc = name.find(".temp", 0);
+                        name = name.substr(0, loc);                        
+                    }
+                    final_path = (rootDir + "/" + name);
                 }
 
                 if (!doesPathExist(final_path)) {

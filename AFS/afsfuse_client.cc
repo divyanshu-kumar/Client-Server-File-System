@@ -814,11 +814,15 @@ static int client_release(const char *path, struct fuse_file_info *fi) {
             }
             closeBuffer->submitRequest(path);
         } else {
-            closeOnServer(path);
             if (enableTempFileWrites && isTempFile) {
+                std::size_t lastPos = recovery_path.find_last_of("/");
+                string originalFile = recovery_path.substr(lastPos, recovery_path.length());
+                closeOnServer(originalFile.c_str());
                 renameRecoveryFileDuringRelease(recovery_path, cache->getCachedPath(path));
                 cache->clearTempFile(tempFd);
-            }            
+            } else {
+                closeOnServer(path);
+            }         
         }
     }
 
