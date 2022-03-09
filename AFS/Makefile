@@ -14,16 +14,13 @@ PROTOS_PATH = ./
 
 vpath %.proto $(PROTOS_PATH)
 
-all: system-check afsfuse_client afsfuse_server batch_write
+all: system-check afsfuse_client afsfuse_server
 
 afsfuse_client: afsfuse.pb.o afsfuse.grpc.pb.o afsfuse_client.o sequential_file_reader.o sequential_file_writer.o utils.o messages.o 
 	$(CXX) $^ $(LDFLAGS) -o $@
 
 afsfuse_server: afsfuse.pb.o afsfuse.grpc.pb.o afsfuse_server.o sequential_file_reader.o sequential_file_writer.o utils.o messages.o
 	$(CXX) $^ $(LDFLAGS) -o $@
-
-batch_write: batch_write.cc
-	$(CXX) batch_write.cc -o $@
 
 .PRECIOUS: %.grpc.pb.cc
 %.grpc.pb.cc: %.proto
@@ -34,7 +31,7 @@ batch_write: batch_write.cc
 	$(PROTOC) -I $(PROTOS_PATH) --cpp_out=. $<
 
 clean:
-	rm -f *.o *.pb.cc *.pb.h afsfuse_client afsfuse_server batch_write
+	rm -f *.o *.pb.cc *.pb.h afsfuse_client afsfuse_server
 
 
 # The following is to test your system and ensure a smoother experience.
