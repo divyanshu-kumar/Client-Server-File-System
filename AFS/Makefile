@@ -1,9 +1,10 @@
-CXX = g++
-CPPFLAGS += -I/usr/local/include -I/users/dkumar27/.local/include -g -pthread `pkg-config fuse3 --cflags --libs`
-CXXFLAGS += -std=c++11
+CXX = g++ -lstdc++fs
+CPPFLAGS += -O3 -I/usr/local/include -I/users/dkumar27/.local/include -g -pthread `pkg-config fuse3 --cflags --libs`
+CXXFLAGS += -std=c++17
 LDFLAGS += -L/users/dkumar27/.local/lib -L/usr/local/lib -g `pkg-config grpc++ grpc fuse3 --cflags --libs`       \
            -Wl,--no-as-needed -lgrpc++_reflection -Wl,--as-needed \
-           -lprotobuf -lpthread -ldl
+           -lprotobuf -lpthread -ldl \
+	   -lstdc++fs
 PROTOC = protoc
 GRPC_CPP_PLUGIN = grpc_cpp_plugin
 GRPC_CPP_PLUGIN_PATH ?= `which $(GRPC_CPP_PLUGIN)`
@@ -13,16 +14,13 @@ PROTOS_PATH = ./
 
 vpath %.proto $(PROTOS_PATH)
 
-all: system-check afsfuse_client afsfuse_server batch_write
+all: system-check afsfuse_client afsfuse_server
 
 afsfuse_client: afsfuse.pb.o afsfuse.grpc.pb.o afsfuse_client.o sequential_file_reader.o sequential_file_writer.o utils.o messages.o 
 	$(CXX) $^ $(LDFLAGS) -o $@
 
 afsfuse_server: afsfuse.pb.o afsfuse.grpc.pb.o afsfuse_server.o sequential_file_reader.o sequential_file_writer.o utils.o messages.o
 	$(CXX) $^ $(LDFLAGS) -o $@
-
-batch_write: batch_write.cc
-	$(CXX) batch_write.cc -o $@
 
 .PRECIOUS: %.grpc.pb.cc
 %.grpc.pb.cc: %.proto
@@ -33,7 +31,7 @@ batch_write: batch_write.cc
 	$(PROTOC) -I $(PROTOS_PATH) --cpp_out=. $<
 
 clean:
-	rm -f *.o *.pb.cc *.pb.h afsfuse_client afsfuse_server batch_write
+	rm -f *.o *.pb.cc *.pb.h afsfuse_client afsfuse_server
 
 
 # The following is to test your system and ensure a smoother experience.

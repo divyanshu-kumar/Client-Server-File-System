@@ -3,13 +3,16 @@
 #include <grpc++/grpc++.h>
 #include <stdio.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
-
+#include <ctime>
 #include <iostream>
 #include <memory>
 #include <sstream>
 #include <string>
+#include <signal.h>
 
 #include "afsfuse.grpc.pb.h"
 #include "file_reader_into_stream.h"
@@ -30,6 +33,15 @@ using namespace afsfuse;
 
 using namespace std;
 
+inline void get_time(struct timespec* ts) {
+    clock_gettime(CLOCK_MONOTONIC, ts);
+}
+inline double get_time_diff(struct timespec* before, struct timespec* after) {
+    double delta_s = after->tv_sec - before->tv_sec;
+    double delta_ns = after->tv_nsec - before->tv_nsec;
+
+    return (delta_s + (delta_ns * 1e-9)) * ((double)1e3);
+}
 string getCurrentWorkingDir() {
     char arg1[20];
     char exepath[PATH_MAX + 1] = {0};
@@ -42,6 +54,7 @@ string getCurrentWorkingDir() {
 }
 
 string rootDir;
+int crashSite;
 
 struct sdata {
     int a;
@@ -50,14 +63,16 @@ struct sdata {
 
 void translatePath(const char* client_path, char* server_path) {
     string path;
-    if (client_path[0] == '/') 
+    if (client_path[0] == '/')
         path = rootDir + client_path;
-    else 
+    else
         path = rootDir + "/" + client_path;
     strcat(server_path, path.c_str());
     // strcat(server_path, "./server");
     // strcat(server_path + 8, client_path);
-    printf("%s : Client path = %s, server path = %s\n", __func__, client_path, server_path);
+    // printf("%s : Client path = %s, server path = %s\n", __func__,
+    // client_path,
+    //        server_path);
     // server_path[strlen(server_path)] = '\0';
 }
 
@@ -65,13 +80,16 @@ class AfsServiceImpl final : public AFS::Service {
     Status afsfuse_getattr(ServerContext* context, const String* s,
                            Stat* reply) override {
         // cout<<"[DEBUG] : lstat: "<<s->str().c_str()<<endl;
-        printf("%s \n", __func__);
+        // printf("%s \n", __func__);
+        if (crashSite == 1) {
+            raise(SIGSEGV);
+        }      	
         struct stat st;
         char server_path[512] = {0};
         translatePath(s->str().c_str(), server_path);
         int res = lstat(server_path, &st);
         if (res == -1) {
-            perror(strerror(errno));
+            // printf("%s \n", __func__);perror(strerror(errno));
             // cout<<"errno: "<<errno<<endl;
             reply->set_err(errno);
         } else {
@@ -85,7 +103,11 @@ class AfsServiceImpl final : public AFS::Service {
             reply->set_blksize(st.st_blksize);
             reply->set_blocks(st.st_blocks);
             reply->set_atime(st.st_atime);
+            reply->set_atimtvsec(st.st_atim.tv_sec);
+            reply->set_atimtvnsec(st.st_atim.tv_nsec);
             reply->set_mtime(st.st_mtime);
+            reply->set_mtimtvsec(st.st_mtim.tv_sec);
+            reply->set_mtimtvnsec(st.st_mtim.tv_nsec);
             reply->set_ctime(st.st_ctime);
 
             reply->set_err(0);
@@ -97,7 +119,7 @@ class AfsServiceImpl final : public AFS::Service {
     Status afsfuse_readdir(ServerContext* context, const String* s,
                            ServerWriter<Dirent>* writer) override {
         // cout<<"[DEBUG] : readdir: "<<s->str().c_str()<<endl;
-        printf("%s \n", __func__);
+        // printf("%s \n", __func__);
         DIR* dp;
         struct dirent* de;
         Dirent directory;
@@ -107,6 +129,7 @@ class AfsServiceImpl final : public AFS::Service {
         dp = opendir(server_path);
         if (dp == NULL) {
             // cout<<"[DEBUG] : readdir: "<<"dp == NULL"<<endl;
+            printf("%s \n", __func__);
             perror(strerror(errno));
             directory.set_err(errno);
             return Status::OK;
@@ -150,7 +173,7 @@ class AfsServiceImpl final : public AFS::Service {
 
     Status afsfuse_read(ServerContext* context, const ReadRequest* rr,
                         ReadResult* reply) override {
-        printf("%s \n", __func__);
+        // printf("%s \n", __func__);
         char path[512];
         char* buf = new char[rr->size()];
         translatePath(rr->path().c_str(), path);
@@ -160,6 +183,7 @@ class AfsServiceImpl final : public AFS::Service {
         // cout<<"[DEBUG] : afsfuse_read: fd "<<fd<<endl;
         if (fd == -1) {
             reply->set_err(errno);
+            printf("%s \n", __func__);
             perror(strerror(errno));
             return Status::OK;
         }
@@ -167,6 +191,7 @@ class AfsServiceImpl final : public AFS::Service {
         int res = pread(fd, buf, rr->size(), rr->offset());
         if (res == -1) {
             reply->set_err(errno);
+            printf("%s \n", __func__);
             perror(strerror(errno));
             return Status::OK;
         }
@@ -183,7 +208,7 @@ class AfsServiceImpl final : public AFS::Service {
 
     Status afsfuse_write(ServerContext* context, const WriteRequest* wr,
                          WriteResult* reply) override {
-        printf("%s \n", __func__);
+        // printf("%s \n", __func__);
         char path[512] = {0};
         translatePath(wr->path().c_str(), path);
         int fd = open(path, O_WRONLY);
@@ -191,6 +216,7 @@ class AfsServiceImpl final : public AFS::Service {
         // cout<<"[DEBUG] : afsfuse_write: fd "<<fd<<endl;
         if (fd == -1) {
             reply->set_err(errno);
+            printf("%s \n", __func__);
             perror(strerror(errno));
             return Status::OK;
         }
@@ -202,6 +228,7 @@ class AfsServiceImpl final : public AFS::Service {
 
         if (res == -1) {
             reply->set_err(errno);
+            printf("%s \n", __func__);
             perror(strerror(errno));
             return Status::OK;
         }
@@ -214,11 +241,36 @@ class AfsServiceImpl final : public AFS::Service {
         return Status::OK;
     }
 
+    bool doesPathExist(std::string server_path) {
+        std::size_t lastPos = server_path.find_last_of("/");
+        struct stat tempStatBuffer;
+        return stat(server_path.substr(0, lastPos).c_str(), &tempStatBuffer) == 0;
+    }
+
+    bool createPath(std::string server_path) {
+        printf("%s : Path does not exist\n Creating Path", __func__);
+        std::size_t lastPos = server_path.find_last_of("/");
+        std::string toBeCreatedPath = server_path.substr(0, lastPos);
+        string command = "mkdir -p " + toBeCreatedPath;
+        int res = system(command.c_str());		
+        return res == 0;
+    }
+
     Status afsfuse_create(ServerContext* context, const CreateRequest* req,
                           CreateResult* reply) override {
-        printf("%s \n", __func__);
         char server_path[512] = {0};
         translatePath(req->path().c_str(), server_path);
+
+        if (!doesPathExist(server_path)) {
+            bool pathCreated = createPath(server_path);
+            if (pathCreated) {
+                printf("%s : %s path Creation Success\n", __func__, server_path);
+            } else {
+                printf("%s : %s path Creation Failed\n", __func__, server_path);
+                reply->set_err(errno);
+                return Status::OK;
+            }
+        }	
 
         // cout<<"[DEBUG] : afsfuse_create: path "<<server_path<<endl;
         // cout<<"[DEBUG] : afsfuse_create: flag "<<req->flags()<<endl;
@@ -230,6 +282,11 @@ class AfsServiceImpl final : public AFS::Service {
             reply->set_err(errno);
             return Status::OK;
         } else {
+            struct timespec ts[2];  // ts[0] - access, ts[1] - mod
+            get_time(&ts[0]);
+            ts[1].tv_sec = ts[0].tv_sec;
+            ts[1].tv_nsec = ts[0].tv_nsec;
+            utimensat(AT_FDCWD, server_path, ts, AT_SYMLINK_NOFOLLOW);
             reply->set_fh(fh);
             reply->set_err(0);
             close(fh);
@@ -240,13 +297,14 @@ class AfsServiceImpl final : public AFS::Service {
     Status afsfuse_mkdir(ServerContext* context, const MkdirRequest* input,
                          OutputInfo* reply) override {
         // cout<<"[DEBUG] : mkdir: " << endl;
-        printf("%s \n", __func__);
+        // printf("%s \n", __func__);
         char server_path[512] = {0};
         translatePath(input->s().c_str(), server_path);
 
         int res = mkdir(server_path, input->mode());
 
         if (res == -1) {
+            printf("%s \n", __func__);
             perror(strerror(errno));
             reply->set_err(errno);
             return Status::OK;
@@ -260,13 +318,14 @@ class AfsServiceImpl final : public AFS::Service {
     Status afsfuse_rmdir(ServerContext* context, const String* input,
                          OutputInfo* reply) override {
         // cout<<"[DEBUG] : rmdir: " << endl;
-        printf("%s \n", __func__);
+        // printf("%s \n", __func__);
         char server_path[512] = {0};
         translatePath(input->str().c_str(), server_path);
 
         int res = rmdir(server_path);
 
         if (res == -1) {
+            printf("%s \n", __func__);
             perror(strerror(errno));
             reply->set_err(errno);
             return Status::OK;
@@ -280,12 +339,13 @@ class AfsServiceImpl final : public AFS::Service {
     Status afsfuse_unlink(ServerContext* context, const String* input,
                           OutputInfo* reply) override {
         // cout<<"[DEBUG] : unlink " << endl;
-        printf("%s \n", __func__);
+        // printf("%s \n", __func__);
         char server_path[512] = {0};
         translatePath(input->str().c_str(), server_path);
         // cout << "server path: " << server_path << endl;
         int res = unlink(server_path);
         if (res == -1) {
+            printf("%s \n", __func__);
             perror(strerror(errno));
             reply->set_err(errno);
             return Status::OK;
@@ -298,8 +358,9 @@ class AfsServiceImpl final : public AFS::Service {
     Status afsfuse_rename(ServerContext* context, const RenameRequest* input,
                           OutputInfo* reply) override {
         // cout<<"[DEBUG] : rename " << endl;
-        printf("%s \n", __func__);
+        // printf("%s \n", __func__);
         if (input->flag()) {
+            printf("%s \n", __func__);
             perror(strerror(errno));
             reply->set_err(EINVAL);
             reply->set_str("rename fail");
@@ -313,6 +374,7 @@ class AfsServiceImpl final : public AFS::Service {
 
         int res = rename(from_path, to_path);
         if (res == -1) {
+            printf("%s \n", __func__);
             perror(strerror(errno));
             reply->set_err(errno);
             return Status::OK;
@@ -326,7 +388,7 @@ class AfsServiceImpl final : public AFS::Service {
     Status afsfuse_utimens(ServerContext* context, const UtimensRequest* input,
                            OutputInfo* reply) override {
         // cout<<"[DEBUG] : utimens " << endl;
-        printf("%s \n", __func__);
+        // printf("%s \n", __func__);
         char server_path[512] = {0};
         translatePath(input->path().c_str(), server_path);
 
@@ -343,6 +405,7 @@ class AfsServiceImpl final : public AFS::Service {
         int res = utimensat(AT_FDCWD, server_path, ts, AT_SYMLINK_NOFOLLOW);
 
         if (res == -1) {
+            printf("%s \n", __func__);
             perror(strerror(errno));
             reply->set_err(errno);
             return Status::OK;
@@ -354,7 +417,7 @@ class AfsServiceImpl final : public AFS::Service {
     Status afsfuse_mknod(ServerContext* context, const MknodRequest* input,
                          OutputInfo* reply) override {
         // cout<<"[DEBUG] : mknod " << endl;
-        printf("%s \n", __func__);
+        // printf("%s \n", __func__);
         char server_path[512] = {0};
         translatePath(input->path().c_str(), server_path);
 
@@ -380,20 +443,21 @@ class AfsServiceImpl final : public AFS::Service {
     Status afsfuse_getFile(ServerContext* context, const File* file,
                            ServerWriter<FileContent>* writer) override {
         struct stat buffer;
-        string filepath = rootDir + file->path();
-        std::cout << __func__ << " : " << filepath.c_str() << endl;
-        if (stat(filepath.c_str(), &buffer) == 0) {
-            printf("%s: File exists\n", __func__);
-        }
+        string filepath = rootDir.c_str() + file->path();
+        //std::cout << __func__ << " : " << filepath.c_str() << endl;
+        //if (stat(filepath.c_str(), &buffer) == 0) {
+        //    printf("%s: File exists\n", __func__);
+        //}
         try {
             FileReaderIntoStream<ServerWriter<FileContent> > reader(
-                filepath.c_str(), *writer);
+                rootDir, file->path(), *writer);
+            
             const size_t chunk_size =
                 1UL << 20;  // Hardcoded to 1MB, which seems to be recommended
                             // from experience.
             reader.Read(chunk_size);
-            std::cout << "Sending chunk of size 1 MB from server to client"
-                      << std::endl;
+            //std::cout << "Sending chunk of size 1 MB from server to client"
+            //          << std::endl;
         } catch (const std::exception& ex) {
             std::ostringstream sts;
             sts << "Error sending the file " << filepath.c_str() << " : "
@@ -401,33 +465,50 @@ class AfsServiceImpl final : public AFS::Service {
             std::cerr << sts.str() << std::endl;
             return Status(StatusCode::ABORTED, sts.str());
         }
-        std::cout << __func__ << " : DONE " << std::endl;
+        //std::cout << __func__ << " : DONE " << std::endl;
         return Status::OK;
     }
 
     Status afsfuse_putFile(ServerContext* context,
                            ServerReader<FileContent>* reader,
                            OutputInfo* reply) override {
-        printf("%s : Begin\n", __func__);
+        // printf("%s : Begin\n", __func__);  
+        string final_path, temp_path;
         FileContent contentPart;
         SequentialFileWriter writer;
-	string originalPath = "";
-	string path = "";
+        struct timespec ts_start, ts_end;
+        get_time(&ts_start);
         while (reader->Read(&contentPart)) {
             try {
-                // FIXME: Do something reasonable if a file with a different
-                // name but the same ID already exists
-		printf("Content Part Name: %s\n", contentPart.name().c_str());
-		originalPath = (rootDir + "/" + contentPart.name());
-                path = (rootDir + "/" + contentPart.name() + ".tmp" + std::to_string(rand() % 1000));
-                printf("Writing to file %s\n", path.c_str());
-                
-                writer.OpenIfNecessary(path);
+                if (temp_path.empty()) {
+                    string name = contentPart.name();
+                    if (name.empty() == false && name.at(0) == '/') {
+                        name = name.substr(1);
+                    }
+
+                    temp_path = (rootDir + "/" + name + ".tmp" + std::to_string(rand() % 1000));
+                    if (name.find(".temp", 0) != string::npos) {
+                        string::size_type loc = name.find(".temp", 0);
+                        name = name.substr(0, loc);                        
+                    }
+                    final_path = (rootDir + "/" + name);
+                }
+
+                if (!doesPathExist(final_path)) {
+                    bool pathCreated = createPath(final_path);
+                    if (pathCreated) {
+                        printf("%s : %s path Creation Success\n", __func__, final_path.c_str());
+                    } else {
+                        printf("%s : %s path Creation Failed\n", __func__, final_path.c_str());
+                        reply->set_err(errno);
+                        return Status::OK;
+                    }
+                }
+                writer.OpenIfNecessary(temp_path);
                 auto* const data = contentPart.mutable_content();
+                // std::cout << "Received data at server " << std::endl;
                 writer.Write(*data);
                 reply->set_err(0);
-                // FIXME: Protect from concurrent access by multiple threads
-                // m_FileIdToName[contentPart.id()] = contentPart.name();
             } catch (const std::system_error& ex) {
                 printf("%s : ERROR getting file on server!!\n", __func__);
                 const auto status_code = writer.NoSpaceLeft()
@@ -436,16 +517,23 @@ class AfsServiceImpl final : public AFS::Service {
                 return Status(status_code, ex.what());
             }
         }
-	int res = rename(path.c_str(), originalPath.c_str());
-	if (res == -1) {
-	    printf("%s : Renaming Failed\n", __func__);
+
+        int res = rename(temp_path.c_str(), final_path.c_str());
+
+        if (res == -1) {
+            printf("%s \t : Renaming failed! From = %s to %s\n", 
+                __func__, temp_path.c_str(), final_path.c_str());
             perror(strerror(errno));
             reply->set_err(errno);
-            return Status::OK;
-	} else {
-	    printf("%s : %s renamed to %s\n", __func__, path.c_str(), originalPath.c_str());
-	}
-        reply->set_err(0);
+        }
+        else {
+            reply->set_err(0);
+        }
+
+        get_time(&ts_end);
+        printf("Time to receive (ms) : %f \n",
+               get_time_diff(&ts_start, &ts_end));
+        
         return Status::OK;
     }
 };
@@ -453,7 +541,7 @@ class AfsServiceImpl final : public AFS::Service {
 void RunServer() {
     std::string server_address("0.0.0.0:50051");
     AfsServiceImpl service;
-    printf("%s \n", __func__);
+    // printf("%s \n", __func__);
     ServerBuilder builder;
 
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
@@ -467,10 +555,20 @@ void RunServer() {
 }
 
 int main(int argc, char** argv) {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    cout.tie(nullptr);
+    srand(time(NULL));
     struct stat buffer;
     rootDir = getCurrentWorkingDir();
     printf("CurrentWorkingDir: %s\n", rootDir.c_str());
     string serverFolderPath = rootDir + "/" + "server";
+
+    int pos = std::string(argv[argc - 1]).rfind("--crash=", 0);
+    if (pos == 0) {
+        crashSite = stoi(std::string(argv[argc - 1]).substr(string("--crash=").length()));
+    }
+
     if (stat(serverFolderPath.c_str(), &buffer) == 0) {
         printf("%s : Folder %s exists.\n", __func__, serverFolderPath.c_str());
     } else {
@@ -486,6 +584,6 @@ int main(int argc, char** argv) {
     rootDir = serverFolderPath;
     printf("RootDIR = %s\n", rootDir.c_str());
     RunServer();
-    printf("%s \n", __func__);
+    // printf("%s \n", __func__);
     return 0;
 }

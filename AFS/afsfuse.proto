@@ -19,20 +19,23 @@ message Dirent {
 
 
 message Stat {
-    uint32   dev = 1;    // ID of device containing file 
-    uint32   ino = 2;     // inode number 
-    int32   mode = 3;   // protection 
-    uint32   nlink = 4;    // number of hard links 
-    uint32     uid = 5;     // user ID of owner 
-    uint32     gid = 6;     // group ID of owner 
-    sint64     size = 7;    // total size, in bytes 
-    sint64 blksize = 8; // blocksize for file system I/O 
-    sint64  blocks = 9;  // number of 512B blocks allocated 
-    int32    atime = 10;   // time of last access 
-    int32    mtime = 11;   // time of last modification
-    int32    ctime = 12;   // time of last status change
-    
-    int32    err = 13; 
+    uint32   dev         = 1;    // ID of device containing file 
+    uint32   ino         = 2;    // inode number 
+    int32    mode        = 3;    // protection 
+    uint32   nlink       = 4;    // number of hard links 
+    uint32   uid         = 5;    // user ID of owner 
+    uint32   gid         = 6;    // group ID of owner 
+    sint64   size        = 7;    // total size, in bytes 
+    sint64   blksize     = 8;    // blocksize for file system I/O 
+    sint64   blocks      = 9;    // number of 512B blocks allocated 
+    int32    atime       = 10;   // time of last access 
+    int32    mtime       = 11;   // time of last modification
+    int32    ctime       = 12;   // time of last status change
+    int64    atimtvsec   = 13;   // time of last access 
+    int64    atimtvnsec  = 14;   // time of last access 
+    int64    mtimtvsec   = 15;   // time of last modification
+    int64    mtimtvnsec  = 16;   // time of last modification
+    int32    err         = 17;   // error code
 }
 
 message FuseFileInfo{
