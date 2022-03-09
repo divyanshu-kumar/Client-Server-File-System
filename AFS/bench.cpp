@@ -147,7 +147,7 @@ void benchmarkApplication(string userId, vector<struct time_statistics> &ts) {
             }
         }
 
-        msleep(500 + (rand()%500));
+        msleep(1500 + (rand()%500));
         
         string clearCommand = "rm " + cachedFolder + "*";
         int tempres = system(clearCommand.c_str());
@@ -264,7 +264,7 @@ void benchmarkApplication(string userId, vector<struct time_statistics> &ts) {
 
             get_time(&ts_unlink_start);
 
-            res = unlink(fileName.c_str());
+            //res = unlink(fileName.c_str());
 
             get_time(&ts_unlink_end);
 
