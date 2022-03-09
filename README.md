@@ -32,7 +32,34 @@ g++ -pthread -o bench bench.cpp
 sudo ./bench [Number of concurrent applications to test]
 ```
 
-Rubrics:
+The benchmarking code is capable of testing and reporting the time it takes to create, write to, read a, open(cold cache + warm cache) and close a file. 
+It does the same test 3 times per application count and reports the numbers for each file size mentioned in the program.
+Sample benchmarking output:
+Starting thread with id = 0.
+Made directory ./client/0_129/
+0_129 : Create, write test..
+0_129 : Cold Open, Read test..
+0_129 : Warm Open, Close test..
+0_129 : Create, write test..
+0_129 : Cold Open, Read test..
+0_129 : Warm Open, Close test..
+0_129 : Create, write test..
+0_129 : Cold Open, Read test..
+0_129 : Warm Open, Close test..
+Joined thread with id = 0.
+*****Proc id = 0******
+Create = 2.26     	 Write = 0.11     	 Close = 18.45    	 First Open = 3.28     	 Cached Open = 2.25     	 Read = 0.10     	Read Close = 0.82     	 File Size = 1024      
+Create = 2.59     	 Write = 0.13     	 Close = 15.92    	 First Open = 3.16     	 Cached Open = 2.04     	 Read = 0.11     	Read Close = 0.98     	 File Size = 10240     
+Create = 2.74     	 Write = 0.28     	 Close = 20.10    	 First Open = 3.94     	 Cached Open = 2.29     	 Read = 0.36     	Read Close = 0.92     	 File Size = 102400    
+Create = 3.21     	 Write = 1.21     	 Close = 4.89     	 First Open = 6.56     	 Cached Open = 3.28     	 Read = 0.77     	Read Close = 0.88     	 File Size = 512000    
+Create = 4.08     	 Write = 1.89     	 Close = 15.69    	 First Open = 9.88     	 Cached Open = 4.61     	 Read = 1.16     	Read Close = 0.77     	 File Size = 1048576   
+Create = 3.26     	 Write = 79.66    	 Close = 8.57     	 First Open = 22.62    	 Cached Open = 13.63    	 Read = 4.14     	Read Close = 0.72     	 File Size = 5242880   
+Create = 3.45     	 Write = 194.61   	 Close = 7.79     	 First Open = 38.82    	 Cached Open = 21.41    	 Read = 8.08     	Read Close = 0.92     	 File Size = 10485760  
+
+
+
+
+RUBRICS:
 
 1.1 POSIX Semantics: Implemented the Fuse equivalent in afsfuse_client.cc and the RPC calls of client are defined in AfsClient.h and the RPC calls of server are implemented in afsfuse_server.cc.
 
